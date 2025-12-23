@@ -106,38 +106,38 @@ export function EventDialog({ isOpen, onClose, selectedDate, eventToEdit }: Even
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px] glass border-white/50">
+      <DialogContent className="sm:max-w-[500px] bg-white/70 backdrop-blur-xl border-2 border-white/60 shadow-2xl rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="font-comic text-2xl text-primary">
+          <DialogTitle className="font-comic text-3xl bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
             {eventToEdit ? "Edit Event" : "Create New Event"}
           </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label>Title</Label>
-            <Input {...form.register("title")} placeholder="Meeting with team..." className="bg-white/50 border-white/30" />
+            <Label className="text-sm font-semibold text-gray-700">Title</Label>
+            <Input {...form.register("title")} placeholder="Meeting with team..." className="bg-white/80 border-white/50 text-gray-900 placeholder:text-gray-500 focus:bg-white" />
             {form.formState.errors.title && <p className="text-destructive text-sm">{form.formState.errors.title.message}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Start Time</Label>
-              <Input type="datetime-local" {...form.register("startTime")} className="bg-white/50 border-white/30" />
+              <Label className="text-sm font-semibold text-gray-700">Start Time</Label>
+              <Input type="datetime-local" {...form.register("startTime")} className="bg-white/80 border-white/50 text-gray-900 focus:bg-white" />
             </div>
             <div className="space-y-2">
-              <Label>End Time</Label>
-              <Input type="datetime-local" {...form.register("endTime")} className="bg-white/50 border-white/30" />
+              <Label className="text-sm font-semibold text-gray-700">End Time</Label>
+              <Input type="datetime-local" {...form.register("endTime")} className="bg-white/80 border-white/50 text-gray-900 focus:bg-white" />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Calendar</Label>
+            <Label className="text-sm font-semibold text-gray-700">Calendar</Label>
             <Select 
               value={String(form.watch("calendarId"))} 
               onValueChange={(val) => form.setValue("calendarId", parseInt(val))}
             >
-              <SelectTrigger className="bg-white/50 border-white/30">
+              <SelectTrigger className="bg-white/80 border-white/50 text-gray-900 focus:bg-white">
                 <SelectValue placeholder="Select calendar" />
               </SelectTrigger>
               <SelectContent>
@@ -152,21 +152,21 @@ export function EventDialog({ isOpen, onClose, selectedDate, eventToEdit }: Even
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Location</Label>
-              <Input {...form.register("location")} placeholder="Office, Zoom..." className="bg-white/50 border-white/30" />
+              <Label className="text-sm font-semibold text-gray-700">Location</Label>
+              <Input {...form.register("location")} placeholder="Office, Zoom..." className="bg-white/80 border-white/50 text-gray-900 placeholder:text-gray-500 focus:bg-white" />
             </div>
             <div className="space-y-2">
-              <Label>Color</Label>
-              <Input type="color" {...form.register("color")} className="h-10 w-full bg-white/50 border-white/30 p-1" />
+              <Label className="text-sm font-semibold text-gray-700">Color</Label>
+              <Input type="color" {...form.register("color")} className="h-10 w-full bg-white/80 border-white/50 p-1 focus:bg-white" />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Description</Label>
-            <Textarea {...form.register("description")} className="bg-white/50 border-white/30" />
+            <Label className="text-sm font-semibold text-gray-700">Description</Label>
+            <Textarea {...form.register("description")} className="bg-white/80 border-white/50 text-gray-900 placeholder:text-gray-500 focus:bg-white" />
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-0 pt-4">
             {eventToEdit && (
               <Button 
                 type="button" 
