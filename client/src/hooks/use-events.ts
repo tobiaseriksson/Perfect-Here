@@ -25,7 +25,13 @@ export function useEvents({ startDate, endDate, calendarId }: UseEventsOptions =
         if (res.status === 401) return null;
         throw new Error("Failed to fetch events");
       }
-      return api.events.list.responses[200].parse(await res.json());
+      const events = api.events.list.responses[200].parse(await res.json());
+      
+      // Filter by calendar if specified
+      if (calendarId) {
+        return events.filter(e => e.calendarId === calendarId);
+      }
+      return events;
     },
   });
 }

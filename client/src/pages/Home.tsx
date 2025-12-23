@@ -17,10 +17,10 @@ export default function Home() {
   const [isEventDialogOpen, setIsEventDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<Event | null>(null);
+  const [selectedCalendarId, setSelectedCalendarId] = useState<number | null>(null);
 
-  // Fetch events for current month view range
-  // Ideally calculate start/end of view, but fetching broader range is fine for now
-  const { data: events } = useEvents();
+  // Fetch events for current month view range, filtered by selected calendar
+  const { data: events } = useEvents({ calendarId: selectedCalendarId || undefined });
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
   if (!user) return <Redirect to="/login" />;
@@ -63,7 +63,7 @@ export default function Home() {
         </Button>
 
         <div className="flex-1 overflow-y-auto pr-2">
-          <CalendarList />
+          <CalendarList selectedCalendarId={selectedCalendarId} onSelectCalendar={setSelectedCalendarId} />
         </div>
 
         <div className="pt-4 border-t border-white/20">
@@ -104,7 +104,7 @@ export default function Home() {
                   <Button className="w-full justify-start gap-2 comic-button" onClick={handleCreateNew}>
                     <Plus className="w-4 h-4" /> Create Event
                   </Button>
-                  <CalendarList />
+                  <CalendarList selectedCalendarId={selectedCalendarId} onSelectCalendar={setSelectedCalendarId} />
                   <div className="mt-auto pt-4 border-t border-white/20">
                     <Button variant="ghost" className="w-full justify-start text-destructive" onClick={() => logout()}>
                       <LogOut className="w-4 h-4 mr-2" /> Sign Out

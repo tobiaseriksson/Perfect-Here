@@ -1,6 +1,6 @@
 import { useCalendars, useCreateCalendar, useDeleteCalendar, useShareCalendar } from "@/hooks/use-calendars";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Share2, Calendar as CalendarIcon } from "lucide-react";
+import { Plus, Trash2, Share2, Copy, Check } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,64 +10,116 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCalendarSchema } from "@shared/schema";
 import { z } from "zod";
 
-export function CalendarList() {
+interface CalendarListProps {
+  selectedCalendarId?: number | null;
+  onSelectCalendar: (id: number | null) => void;
+}
+
+export function CalendarList({ selectedCalendarId, onSelectCalendar }: CalendarListProps) {
   const { data: calendars } = useCalendars();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-comic text-xl font-bold text-gray-700">My Calendars</h3>
+        <h3 className="font-comic text-lg font-bold">Calendars</h3>
         <CreateCalendarDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {calendars?.map((calendar) => (
-          <CalendarItem key={calendar.id} calendar={calendar} />
+          <CalendarItem 
+            key={calendar.id} 
+            calendar={calendar}
+            isSelected={selectedCalendarId === calendar.id}
+            onSelect={() => onSelectCalendar(calendar.id)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function CalendarItem({ calendar }: { calendar: any }) {
+function CalendarItem({ calendar, isSelected, onSelect }: { calendar: any; isSelected: boolean; onSelect: () => void }) {
   const deleteMutation = useDeleteCalendar();
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [showCaldav, setShowCaldav] = useState(false);
+  const [copiedCaldav, setCopiedCaldav] = useState(false);
 
   const isOwner = calendar.role !== 'viewer';
+  const caldavUrl = `${window.location.origin}/caldav/calendars/${calendar.id}`;
+
+  const handleCopyCalDAV = () => {
+    navigator.clipboard.writeText(caldavUrl);
+    setCopiedCaldav(true);
+    setTimeout(() => setCopiedCaldav(false), 2000);
+  };
 
   return (
-    <div className="group flex items-center justify-between p-3 rounded-xl bg-white/40 hover:bg-white/60 border border-white/30 transition-all shadow-sm">
-      <div className="flex items-center gap-3">
-        <div 
-          className="w-4 h-4 rounded-full shadow-sm" 
-          style={{ backgroundColor: calendar.color }} 
-        />
-        <span className="font-medium text-sm text-gray-700">{calendar.title}</span>
-        {calendar.role === 'viewer' && (
-          <span className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded text-gray-500 font-bold uppercase">Shared</span>
+    <div className={`space-y-1 p-3 rounded-lg border transition-all ${isSelected ? 'bg-primary/10 border-primary/50' : 'bg-white/30 border-white/30 hover:bg-white/40'}`}>
+      <div className="flex items-center justify-between">
+        <button
+          onClick={onSelect}
+          className="flex items-center gap-3 flex-1 text-left hover:opacity-70 transition-opacity"
+        >
+          <div 
+            className="w-4 h-4 rounded-full shadow-sm" 
+            style={{ backgroundColor: calendar.color }} 
+          />
+          <div className="flex-1">
+            <span className="font-medium text-sm">{calendar.title}</span>
+            {calendar.role === 'viewer' && (
+              <span className="text-[10px] ml-2 bg-gray-200 px-1.5 py-0.5 rounded text-gray-500 font-bold uppercase">Shared</span>
+            )}
+          </div>
+        </button>
+
+        {isOwner && (
+          <div className="flex items-center gap-1">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6 text-muted-foreground hover:text-primary"
+              onClick={() => setShowCaldav(!showCaldav)}
+              title="CalDAV URL"
+            >
+              <Copy className="w-3 h-3" />
+            </Button>
+            <ShareCalendarDialog 
+              calendarId={calendar.id} 
+              open={isShareOpen} 
+              onOpenChange={setIsShareOpen} 
+            />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6 text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                if (confirm("Are you sure you want to delete this calendar?")) {
+                  deleteMutation.mutate(calendar.id);
+                }
+              }}
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
         )}
       </div>
 
-      {isOwner && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <ShareCalendarDialog 
-            calendarId={calendar.id} 
-            open={isShareOpen} 
-            onOpenChange={setIsShareOpen} 
-          />
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-7 w-7 text-destructive hover:bg-destructive/10"
-            onClick={() => {
-              if (confirm("Are you sure you want to delete this calendar?")) {
-                deleteMutation.mutate(calendar.id);
-              }
-            }}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
+      {showCaldav && (
+        <div className="mt-2 text-xs space-y-2">
+          <p className="text-muted-foreground">CalDAV URL:</p>
+          <div className="flex gap-2 bg-white/40 p-2 rounded border border-white/30">
+            <code className="text-[11px] truncate flex-1">{caldavUrl}</code>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              onClick={handleCopyCalDAV}
+            >
+              {copiedCaldav ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+            </Button>
+          </div>
         </div>
       )}
     </div>

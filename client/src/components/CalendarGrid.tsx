@@ -89,7 +89,7 @@ export function CalendarGrid({ currentDate, events = [], onDateClick, onEventCli
                       textShadow: '0px 1px 2px rgba(0,0,0,0.1)'
                     }}
                   >
-                    {format(new Date(event.startTime), "h:mm a")} {event.title}
+                    {format(new Date(event.startTime), "HH:mm")} {event.title}
                   </motion.div>
                 ))}
               </div>
