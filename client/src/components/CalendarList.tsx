@@ -1,0 +1,189 @@
+import { useCalendars, useCreateCalendar, useDeleteCalendar, useShareCalendar } from "@/hooks/use-calendars";
+import { Button } from "@/components/ui/button";
+import { Plus, Trash2, Share2, Calendar as CalendarIcon } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { insertCalendarSchema } from "@shared/schema";
+import { z } from "zod";
+
+export function CalendarList() {
+  const { data: calendars } = useCalendars();
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="font-comic text-xl font-bold text-gray-700">My Calendars</h3>
+        <CreateCalendarDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
+      </div>
+
+      <div className="space-y-3">
+        {calendars?.map((calendar) => (
+          <CalendarItem key={calendar.id} calendar={calendar} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CalendarItem({ calendar }: { calendar: any }) {
+  const deleteMutation = useDeleteCalendar();
+  const [isShareOpen, setIsShareOpen] = useState(false);
+
+  const isOwner = calendar.role !== 'viewer';
+
+  return (
+    <div className="group flex items-center justify-between p-3 rounded-xl bg-white/40 hover:bg-white/60 border border-white/30 transition-all shadow-sm">
+      <div className="flex items-center gap-3">
+        <div 
+          className="w-4 h-4 rounded-full shadow-sm" 
+          style={{ backgroundColor: calendar.color }} 
+        />
+        <span className="font-medium text-sm text-gray-700">{calendar.title}</span>
+        {calendar.role === 'viewer' && (
+          <span className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded text-gray-500 font-bold uppercase">Shared</span>
+        )}
+      </div>
+
+      {isOwner && (
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <ShareCalendarDialog 
+            calendarId={calendar.id} 
+            open={isShareOpen} 
+            onOpenChange={setIsShareOpen} 
+          />
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-7 w-7 text-destructive hover:bg-destructive/10"
+            onClick={() => {
+              if (confirm("Are you sure you want to delete this calendar?")) {
+                deleteMutation.mutate(calendar.id);
+              }
+            }}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreateCalendarDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const createMutation = useCreateCalendar();
+  const form = useForm({
+    resolver: zodResolver(insertCalendarSchema),
+    defaultValues: { title: "", description: "", color: "#3b82f6" }
+  });
+
+  const onSubmit = (data: any) => {
+    createMutation.mutate(data, {
+      onSuccess: () => {
+        onOpenChange(false);
+        form.reset();
+      }
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="comic-button gap-2">
+          <Plus className="w-4 h-4" /> New
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="glass border-white/50">
+        <DialogHeader>
+          <DialogTitle className="font-comic text-xl">Create Calendar</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-2">
+            <Label>Name</Label>
+            <Input {...form.register("title")} className="bg-white/50" placeholder="Work, Personal..." />
+            {form.formState.errors.title && <p className="text-red-500 text-xs">{form.formState.errors.title.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label>Color</Label>
+            <Input type="color" {...form.register("color")} className="h-10 w-full bg-white/50 p-1" />
+          </div>
+          <div className="space-y-2">
+            <Label>Description</Label>
+            <Input {...form.register("description")} className="bg-white/50" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={createMutation.isPending} className="comic-button bg-primary text-white">Create</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: number; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const shareMutation = useShareCalendar();
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"viewer" | "admin">("viewer");
+
+  const handleShare = () => {
+    if (!email) return;
+    shareMutation.mutate({ id: calendarId, email, role }, {
+      onSuccess: () => {
+        onOpenChange(false);
+        setEmail("");
+      }
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:bg-primary/10">
+          <Share2 className="w-3.5 h-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="glass border-white/50">
+        <DialogHeader>
+          <DialogTitle className="font-comic text-xl">Share Calendar</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Email Address</Label>
+            <Input 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              placeholder="friend@example.com" 
+              className="bg-white/50"
+            />
+          </div>
+          <div className="space-y-2">
+             <Label>Permission</Label>
+             <select 
+               className="w-full rounded-md border border-input bg-white/50 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+               value={role}
+               onChange={(e) => setRole(e.target.value as any)}
+             >
+               <option value="viewer">Viewer (Read only)</option>
+               <option value="admin">Admin (Can edit)</option>
+             </select>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button 
+              onClick={handleShare} 
+              disabled={shareMutation.isPending || !email} 
+              className="comic-button bg-primary text-white"
+            >
+              {shareMutation.isPending ? "Sharing..." : "Send Invite"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

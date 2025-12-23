@@ -83,7 +83,8 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["var(--font-sans)"],
+        sans: ["'DM Sans'", "var(--font-sans)"],
+        comic: ["'Architects Daughter'", "cursive"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },
