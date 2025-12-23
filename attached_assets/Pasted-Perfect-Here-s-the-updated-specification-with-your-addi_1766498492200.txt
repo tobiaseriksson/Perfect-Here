@@ -1,0 +1,64 @@
+Perfect! Here's the updated specification with your additions:
+
+## Calendar Sharing Application - Technical Specification
+
+### Core Functionality
+Create a cross-platform (web + mobile) calendar sharing application with the following features:
+
+### Authentication & Access
+- Google OAuth integration for user sign-up and login
+- Display a visually striking comic-style calendar icon on the login screen
+- User identification via email address for calendar sharing
+
+### Calendar Management
+- **Multiple Calendars**: Users can create unlimited calendars, each requiring a unique title
+- **Calendar Sharing**: Add multiple administrators by email address; shared calendars automatically appear for all admin users when logged in
+- **CalDAV Sync**: Bidirectional synchronization support via CalDAV protocol with unique URLs per calendar
+
+### Event Management
+**Required Fields (validation enforced):**
+- Title (mandatory)
+- Start date/time (date + hours/minutes only)
+- End date/time (date + hours/minutes only)
+
+**Optional Fields:**
+- Description (plain text only, no WYSIWYG; must support special characters: quotes, commas, colons, semicolons, etc.)
+- Location (plain text field)
+- Color code (for visual calendar display)
+
+**Event Operations:**
+- Create, edit, and delete events
+- **Recurring event patterns:**
+  - **Daily recurrence**: Repeats every day
+  - **Weekly recurrence**: Select specific day(s) of the week (e.g., every Monday and Wednesday)
+  - **Monthly recurrence**: 
+    - By date (e.g., 15th of every month)
+    - By day of week (e.g., 2nd Tuesday of every month) with day selection
+
+### UI/UX Requirements
+- **Framework**: Angular for frontend
+- **Styling**: Tailwind CSS with modern glassmorphism design aesthetic
+- **Calendar View**: Month view with intuitive forward/backward navigation
+- **Recurring Event UI**: 
+  - Checkbox or multi-select interface for choosing days of the week
+  - Clear visual indication of selected recurrence pattern
+- **Responsive**: Fully functional on web and mobile devices
+
+### Technical Architecture
+- **Frontend**: Angular SPA
+- **Backend Communication**: RESTful API
+- **Authentication**: Google OAuth 2.0
+- **Sync Protocol**: CalDAV
+
+### Additional Specifications Suggested:
+- Time zone handling for events
+- Conflict detection for overlapping events (optional)
+- Push notifications for upcoming events (optional)
+- Export/import functionality (iCal format)
+- Search functionality across events (including location field)
+- Calendar view options (day/week/month views)
+- User permissions hierarchy (owner vs. admin vs. viewer)
+- Activity log for calendar changes
+- Location-based features (map integration, location suggestions - optional)
+
+Ready to start building this in Replit?
