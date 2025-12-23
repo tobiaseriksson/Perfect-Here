@@ -162,14 +162,18 @@ export async function registerRoutes(
     const userId = (req.user as any).claims.sub;
     try {
       const input = api.events.create.input.parse(req.body);
-      const access = await checkCalendarAccess(userId, input.calendarId, 'admin'); // or viewer? usually viewers can't create. Spec doesn't say. Assume admin/owner.
-      // Wait, "shared calendars automatically appear for all admin users". Viewers probably just view.
+      const access = await checkCalendarAccess(userId, input.calendarId, 'admin');
       
       if (!access.allowed) {
         return res.status(403).json({ message: access.error });
       }
 
-      const event = await storage.createEvent({ ...input, createdBy: userId });
+      const event = await storage.createEvent({
+        ...input,
+        startTime: new Date(input.startTime),
+        endTime: new Date(input.endTime),
+        createdBy: userId
+      });
       res.status(201).json(event);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -195,7 +199,10 @@ export async function registerRoutes(
 
     try {
       const input = api.events.update.input.parse(req.body);
-      const updated = await storage.updateEvent(eventId, input);
+      const updateData = { ...input };
+      if (updateData.startTime) updateData.startTime = new Date(updateData.startTime);
+      if (updateData.endTime) updateData.endTime = new Date(updateData.endTime);
+      const updated = await storage.updateEvent(eventId, updateData);
       res.json(updated);
     } catch (err) {
        if (err instanceof z.ZodError) {

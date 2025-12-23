@@ -71,7 +71,12 @@ export const calendarSharesRelations = relations(calendarShares, ({ one }) => ({
 
 // Schemas
 export const insertCalendarSchema = createInsertSchema(calendars).omit({ id: true, createdAt: true, ownerId: true });
-export const insertEventSchema = createInsertSchema(events).omit({ id: true, createdAt: true, createdBy: true });
+export const insertEventSchema = createInsertSchema(events)
+  .omit({ id: true, createdAt: true, createdBy: true })
+  .extend({
+    startTime: z.union([z.date(), z.string().pipe(z.coerce.date())]),
+    endTime: z.union([z.date(), z.string().pipe(z.coerce.date())]),
+  });
 export const insertShareSchema = createInsertSchema(calendarShares).omit({ id: true, createdAt: true });
 
 // Types
