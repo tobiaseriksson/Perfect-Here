@@ -54,7 +54,7 @@ export default function Home() {
           <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg comic-shadow flex items-center justify-center flex-shrink-0">
             <Calendar className="w-6 h-6 text-white" />
           </div>
-          <span className="font-comic text-xl font-bold tracking-tight">GlassCal</span>
+          <span className="text-xl font-bold tracking-tight">GlassCal</span>
         </div>
 
         <Button 
@@ -103,7 +103,7 @@ export default function Home() {
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg comic-shadow flex items-center justify-center flex-shrink-0">
                       <Calendar className="w-6 h-6 text-white" />
                     </div>
-                    <span className="font-comic text-xl font-bold">GlassCal</span>
+                    <span className="text-xl font-bold">GlassCal</span>
                   </div>
                   <Button className="w-full justify-start gap-2 comic-button" onClick={handleCreateNew}>
                     <Plus className="w-4 h-4" /> Create Event
@@ -122,7 +122,7 @@ export default function Home() {
               <Button variant="outline" size="icon" onClick={handlePrevMonth} className="h-8 w-8 rounded-full hover:bg-white/50 border-white/40">
                 <ChevronLeft className="w-4 h-4" />
               </Button>
-              <h2 className="text-2xl font-comic font-bold min-w-[140px] text-center">
+              <h2 className="text-2xl font-bold min-w-[140px] text-center">
                 {format(currentDate, "MMMM yyyy")}
               </h2>
               <Button variant="outline" size="icon" onClick={handleNextMonth} className="h-8 w-8 rounded-full hover:bg-white/50 border-white/40">

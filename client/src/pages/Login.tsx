@@ -39,7 +39,7 @@ export default function Login() {
         </div>
 
         <div className="space-y-3">
-          <h1 className="text-4xl font-comic font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+          <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
             GlassCal
           </h1>
           <p className="text-muted-foreground text-lg">

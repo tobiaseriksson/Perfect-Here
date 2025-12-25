@@ -108,7 +108,7 @@ export function EventDialog({ isOpen, onClose, selectedDate, eventToEdit }: Even
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[500px] bg-white/70 backdrop-blur-xl border-2 border-white/60 shadow-2xl rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="font-comic text-3xl bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+          <DialogTitle className="text-3xl bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
             {eventToEdit ? "Edit Event" : "Create New Event"}
           </DialogTitle>
         </DialogHeader>

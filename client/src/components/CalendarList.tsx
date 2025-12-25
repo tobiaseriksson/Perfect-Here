@@ -22,7 +22,7 @@ export function CalendarList({ selectedCalendarId, onSelectCalendar }: CalendarL
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-comic text-lg font-bold">Calendars</h3>
+        <h3 className="text-lg font-bold">Calendars</h3>
         <CreateCalendarDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
       </div>
 
@@ -151,7 +151,7 @@ function CreateCalendarDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       </DialogTrigger>
       <DialogContent className="glass border-white/50">
         <DialogHeader>
-          <DialogTitle className="font-comic text-xl">Create Calendar</DialogTitle>
+          <DialogTitle className="text-xl">Create Calendar</DialogTitle>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
@@ -211,7 +211,7 @@ function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: n
       </DialogTrigger>
       <DialogContent className="glass border-white/50 sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle className="font-comic text-xl">Share Calendar</DialogTitle>
+          <DialogTitle className="text-xl">Share Calendar</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">

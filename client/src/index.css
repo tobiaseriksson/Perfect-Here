@@ -49,10 +49,6 @@
       radial-gradient(at 50% 0%, hsla(225,39%,30%,0) 0, transparent 50%), 
       radial-gradient(at 100% 0%, hsla(339,49%,30%,0) 0, transparent 50%);
   }
-
-  h1, h2, h3, h4, h5, h6 {
-    font-family: 'Architects Daughter', cursive;
-  }
 }
 
 @layer utilities {
