@@ -20,6 +20,8 @@ export const calendarShares = pgTable("calendar_shares", {
   userId: varchar("user_id").references(() => users.id),
   email: text("email").notNull(),
   role: text("role", { enum: ["admin", "viewer"] }).notNull().default("viewer"),
+  caldavUsername: text("caldav_username"),
+  caldavPassword: text("caldav_password"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -91,4 +93,4 @@ export type InsertShare = z.infer<typeof insertShareSchema>;
 export type CreateCalendarRequest = InsertCalendar;
 export type CreateEventRequest = InsertEvent;
 export type UpdateEventRequest = Partial<InsertEvent>;
-export type ShareCalendarRequest = { email: string; role: "admin" | "viewer" };
+export type ShareCalendarRequest = { email: string; role: "admin" | "viewer"; caldavUsername?: string; caldavPassword?: string };

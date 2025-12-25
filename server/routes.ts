@@ -124,15 +124,14 @@ export async function registerRoutes(
 
     try {
       const input = api.calendars.share.input.parse(req.body);
-      // Check if user exists with this email to link userId immediately (optional but good)
-      // For now, we just store email.
-      // Ideally we should lookup user by email from authStorage but we might not have email lookup easily or user might not exist.
       
       const share = await storage.shareCalendar({
         calendarId,
         email: input.email,
         role: input.role,
-        userId: null // We'd populate this if we could lookup the user
+        userId: null,
+        caldavUsername: input.caldavUsername,
+        caldavPassword: input.caldavPassword
       });
       res.status(201).json(share);
     } catch (err) {
@@ -238,6 +237,26 @@ export async function registerRoutes(
 
       if (!calendar) {
         return res.status(404).json({ message: "Calendar not found" });
+      }
+
+      // Check for Basic Auth if CalDAV credentials are set
+      const authHeader = req.headers.authorization;
+      const shares = await storage.getCalendarShares(calendarId);
+      const shareWithAuth = shares.find(s => s.caldavUsername && s.caldavPassword);
+
+      if (shareWithAuth) {
+        // If credentials are required, validate them
+        if (!authHeader || !authHeader.startsWith('Basic ')) {
+          res.setHeader('WWW-Authenticate', 'Basic realm="Calendar"');
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
+        const [username, password] = credentials.split(':');
+
+        if (username !== shareWithAuth.caldavUsername || password !== shareWithAuth.caldavPassword) {
+          return res.status(401).json({ message: "Invalid credentials" });
+        }
       }
 
       // Get events for this calendar

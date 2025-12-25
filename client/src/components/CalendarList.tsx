@@ -181,13 +181,23 @@ function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: n
   const shareMutation = useShareCalendar();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"viewer" | "admin">("viewer");
+  const [caldavUsername, setCaldavUsername] = useState("");
+  const [caldavPassword, setCaldavPassword] = useState("");
 
   const handleShare = () => {
     if (!email) return;
-    shareMutation.mutate({ id: calendarId, email, role }, {
+    shareMutation.mutate({ 
+      id: calendarId, 
+      email, 
+      role,
+      caldavUsername: caldavUsername || undefined,
+      caldavPassword: caldavPassword || undefined
+    }, {
       onSuccess: () => {
         onOpenChange(false);
         setEmail("");
+        setCaldavUsername("");
+        setCaldavPassword("");
       }
     });
   };
@@ -199,24 +209,24 @@ function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: n
           <Share2 className="w-3.5 h-3.5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="glass border-white/50">
+      <DialogContent className="glass border-white/50 sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle className="font-comic text-xl">Share Calendar</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Email Address</Label>
+            <Label className="text-sm font-semibold text-gray-700">Email Address</Label>
             <Input 
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
               placeholder="friend@example.com" 
-              className="bg-white/50"
+              className="bg-white/80 border-white/50 text-gray-900"
             />
           </div>
           <div className="space-y-2">
-             <Label>Permission</Label>
+             <Label className="text-sm font-semibold text-gray-700">Permission</Label>
              <select 
-               className="w-full rounded-md border border-input bg-white/50 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+               className="w-full rounded-md border border-white/50 bg-white/80 px-3 py-2 text-sm text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/50"
                value={role}
                onChange={(e) => setRole(e.target.value as any)}
              >
@@ -224,6 +234,33 @@ function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: n
                <option value="admin">Admin (Can edit)</option>
              </select>
           </div>
+
+          <div className="border-t border-white/30 pt-4">
+            <p className="text-xs text-muted-foreground mb-3 font-semibold">CalDAV Access (Optional)</p>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700">CalDAV Username</Label>
+                <Input 
+                  value={caldavUsername} 
+                  onChange={(e) => setCaldavUsername(e.target.value)} 
+                  placeholder="username" 
+                  className="bg-white/80 border-white/50 text-gray-900 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700">CalDAV Password</Label>
+                <Input 
+                  type="password"
+                  value={caldavPassword} 
+                  onChange={(e) => setCaldavPassword(e.target.value)} 
+                  placeholder="password" 
+                  className="bg-white/80 border-white/50 text-gray-900 text-sm"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">Users will need these credentials to access via CalDAV clients</p>
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button 
