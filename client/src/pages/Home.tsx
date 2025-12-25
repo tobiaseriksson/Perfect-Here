@@ -4,7 +4,7 @@ import { CalendarGrid } from "@/components/CalendarGrid";
 import { CalendarList } from "@/components/CalendarList";
 import { EventDialog } from "@/components/EventDialog";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, LogOut, Menu, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut, Menu, Plus, Calendar } from "lucide-react";
 import { useState } from "react";
 import { addMonths, subMonths, format } from "date-fns";
 import { useEvents } from "@/hooks/use-events";
@@ -50,9 +50,11 @@ export default function Home() {
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Sidebar - Desktop */}
       <aside className="hidden md:flex w-72 flex-col gap-6 p-6 border-r border-white/20 bg-white/30 backdrop-blur-xl">
-        <div className="flex items-center gap-2 px-2">
-           <div className="w-8 h-8 bg-primary rounded-lg comic-shadow flex items-center justify-center text-white font-bold">G</div>
-           <span className="font-comic text-2xl font-bold tracking-tight">GlassCal</span>
+        <div className="flex items-center gap-3 px-2">
+          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg comic-shadow flex items-center justify-center flex-shrink-0">
+            <Calendar className="w-6 h-6 text-white" />
+          </div>
+          <span className="font-comic text-xl font-bold tracking-tight">GlassCal</span>
         </div>
 
         <Button 
@@ -97,9 +99,11 @@ export default function Home() {
               </SheetTrigger>
               <SheetContent side="left" className="glass w-80 p-0 border-r-white/40">
                 <div className="h-full flex flex-col p-6 gap-6">
-                  <div className="flex items-center gap-2 px-2">
-                    <div className="w-8 h-8 bg-primary rounded-lg comic-shadow flex items-center justify-center text-white font-bold">G</div>
-                    <span className="font-comic text-2xl font-bold">GlassCal</span>
+                  <div className="flex items-center gap-3 px-2">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg comic-shadow flex items-center justify-center flex-shrink-0">
+                      <Calendar className="w-6 h-6 text-white" />
+                    </div>
+                    <span className="font-comic text-xl font-bold">GlassCal</span>
                   </div>
                   <Button className="w-full justify-start gap-2 comic-button" onClick={handleCreateNew}>
                     <Plus className="w-4 h-4" /> Create Event
