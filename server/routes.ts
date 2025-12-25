@@ -230,5 +230,93 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // CalDAV endpoint
+  app.get("/caldav/calendars/:id", async (req, res) => {
+    try {
+      const calendarId = Number(req.params.id);
+      const calendar = await storage.getCalendar(calendarId);
+
+      if (!calendar) {
+        return res.status(404).json({ message: "Calendar not found" });
+      }
+
+      // Get events for this calendar
+      const events = await storage.getEvents({
+        calendarId,
+        userId: undefined
+      });
+
+      // Generate iCalendar format
+      const ics = generateICS(calendar, events);
+      
+      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${calendar.title || 'calendar'}.ics"`);
+      res.send(ics);
+    } catch (err) {
+      console.error("CalDAV error:", err);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   return httpServer;
+}
+
+// Helper function to generate iCalendar format
+function generateICS(calendar: any, events: any[]): string {
+  const now = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  const calendarId = `calendar-${calendar.id}@glassical.local`;
+  
+  let ics = "BEGIN:VCALENDAR\r\n";
+  ics += "VERSION:2.0\r\n";
+  ics += "PRODID:-//GlassCal//Calendar//EN\r\n";
+  ics += `X-WR-CALNAME:${escapeICS(calendar.title)}\r\n`;
+  ics += `X-WR-CALDESC:${escapeICS(calendar.description || "")}\r\n`;
+  ics += `X-WR-TIMEZONE:UTC\r\n`;
+  ics += "CALSCALE:GREGORIAN\r\n";
+
+  // Add events
+  for (const event of events) {
+    ics += "BEGIN:VEVENT\r\n";
+    ics += `UID:${event.id}-${calendarId}\r\n`;
+    ics += `DTSTAMP:${now}\r\n`;
+    ics += `DTSTART:${formatICSDate(event.startTime)}\r\n`;
+    ics += `DTEND:${formatICSDate(event.endTime)}\r\n`;
+    ics += `SUMMARY:${escapeICS(event.title)}\r\n`;
+    
+    if (event.description) {
+      ics += `DESCRIPTION:${escapeICS(event.description)}\r\n`;
+    }
+    if (event.location) {
+      ics += `LOCATION:${escapeICS(event.location)}\r\n`;
+    }
+    
+    ics += "END:VEVENT\r\n";
+  }
+
+  ics += "END:VCALENDAR\r\n";
+  return ics;
+}
+
+// Helper to format date for iCalendar (YYYYMMDDTHHMMSSZ)
+function formatICSDate(date: Date): string {
+  const d = new Date(date);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const hours = String(d.getUTCHours()).padStart(2, "0");
+  const minutes = String(d.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(d.getUTCSeconds()).padStart(2, "0");
+  
+  return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+}
+
+// Helper to escape special characters in iCalendar format
+function escapeICS(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;")
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "");
 }
