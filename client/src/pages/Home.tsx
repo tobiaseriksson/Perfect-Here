@@ -5,19 +5,28 @@ import { CalendarList } from "@/components/CalendarList";
 import { EventDialog } from "@/components/EventDialog";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, LogOut, Menu, Plus, Calendar } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { addMonths, subMonths, format } from "date-fns";
 import { useEvents } from "@/hooks/use-events";
+import { useCalendars } from "@/hooks/use-calendars";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { type Event } from "@shared/schema";
 
 export default function Home() {
   const { user, isLoading: authLoading, logout } = useAuth();
+  const { data: calendars } = useCalendars();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isEventDialogOpen, setIsEventDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<Event | null>(null);
   const [selectedCalendarId, setSelectedCalendarId] = useState<number | null>(null);
+
+  // Set first calendar as selected on initial load
+  useEffect(() => {
+    if (calendars && calendars.length > 0 && selectedCalendarId === null) {
+      setSelectedCalendarId(calendars[0].id);
+    }
+  }, [calendars, selectedCalendarId]);
 
   // Fetch events for current month view range, filtered by selected calendar
   const { data: events } = useEvents({ calendarId: selectedCalendarId || undefined });
