@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { type Event } from "@shared/schema";
 import { motion } from "framer-motion";
+import { formatUTCToLocalTime } from "@/lib/timezone";
 
 interface CalendarGridProps {
   currentDate: Date;
@@ -89,7 +90,7 @@ export function CalendarGrid({ currentDate, events = [], onDateClick, onEventCli
                       textShadow: '0px 1px 2px rgba(0,0,0,0.1)'
                     }}
                   >
-                    {format(new Date(event.startTime), "HH:mm")} {event.title}
+                    {formatUTCToLocalTime(event.startTime)} {event.title}
                   </motion.div>
                 ))}
               </div>

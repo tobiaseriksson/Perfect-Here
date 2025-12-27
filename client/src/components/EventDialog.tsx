@@ -11,6 +11,7 @@ import { z } from "zod";
 import { useEffect } from "react";
 import { useCreateEvent, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useCalendars } from "@/hooks/use-calendars";
+import { datetimeLocalToUTC, utcToDatetimeLocal } from "@/lib/timezone";
 
 interface EventDialogProps {
   isOpen: boolean;
@@ -41,8 +42,8 @@ export function EventDialog({ isOpen, onClose, selectedDate, eventToEdit }: Even
       location: "",
       color: "#3b82f6",
       calendarId: calendars?.[0]?.id,
-      startTime: new Date().toISOString().slice(0, 16),
-      endTime: new Date(new Date().getTime() + 60 * 60 * 1000).toISOString().slice(0, 16),
+      startTime: utcToDatetimeLocal(new Date()),
+      endTime: utcToDatetimeLocal(new Date(new Date().getTime() + 60 * 60 * 1000)),
     }
   });
 
@@ -55,8 +56,8 @@ export function EventDialog({ isOpen, onClose, selectedDate, eventToEdit }: Even
           location: eventToEdit.location || "",
           color: eventToEdit.color || "#3b82f6",
           calendarId: eventToEdit.calendarId,
-          startTime: new Date(eventToEdit.startTime).toISOString().slice(0, 16),
-          endTime: new Date(eventToEdit.endTime).toISOString().slice(0, 16),
+          startTime: utcToDatetimeLocal(eventToEdit.startTime),
+          endTime: utcToDatetimeLocal(eventToEdit.endTime),
         });
       } else if (selectedDate) {
         // Create new event at selected date
@@ -72,25 +73,28 @@ export function EventDialog({ isOpen, onClose, selectedDate, eventToEdit }: Even
           location: "",
           color: "#3b82f6",
           calendarId: calendars?.[0]?.id,
-          startTime: start.toISOString().slice(0, 16),
-          endTime: end.toISOString().slice(0, 16),
+          startTime: utcToDatetimeLocal(start),
+          endTime: utcToDatetimeLocal(end),
         });
       }
     }
   }, [isOpen, selectedDate, eventToEdit, calendars, form]);
 
   const onSubmit = async (data: FormValues) => {
-    // Manually construct proper Date strings with TZ offset if needed, 
-    // but slice(0,16) creates "YYYY-MM-DDTHH:mm" which is parsed locally.
-    // For simplicity in this demo we pass the string and let hook convert to ISO.
+    // Convert datetime-local values (browser timezone) to UTC before sending to server
+    const submitData = {
+      ...data,
+      startTime: datetimeLocalToUTC(data.startTime),
+      endTime: datetimeLocalToUTC(data.endTime),
+    };
     
     if (eventToEdit) {
       await updateMutation.mutateAsync({ 
         id: eventToEdit.id, 
-        ...data 
+        ...submitData 
       });
     } else {
-      await createMutation.mutateAsync(data);
+      await createMutation.mutateAsync(submitData);
     }
     onClose();
   };
