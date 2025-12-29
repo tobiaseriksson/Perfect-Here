@@ -1,6 +1,6 @@
-import { useCalendars, useCreateCalendar, useDeleteCalendar, useShareCalendar } from "@/hooks/use-calendars";
+import { useCalendars, useCreateCalendar, useDeleteCalendar, useShareCalendar, useCalendarShares, useDeleteShare } from "@/hooks/use-calendars";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Share2, Copy, Check } from "lucide-react";
+import { Plus, Trash2, Share2, Copy, Check, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCalendarSchema } from "@shared/schema";
 import { z } from "zod";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface CalendarListProps {
   selectedCalendarId?: number | null;
@@ -149,7 +158,11 @@ function CreateCalendarDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
 function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: number; open: boolean; onOpenChange: (o: boolean) => void }) {
   const shareMutation = useShareCalendar();
+  const deleteShareMutation = useDeleteShare();
+  const { data: shares, isLoading: sharesLoading } = useCalendarShares(calendarId);
   const [email, setEmail] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
 
   const handleShare = () => {
     if (!email) return;
@@ -163,41 +176,114 @@ function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: n
     });
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:bg-primary/10" data-testid="button-share-calendar">
-          <Share2 className="w-3.5 h-3.5" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="glass border-white/50 sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle className="text-xl">Share Calendar</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label className="text-sm font-semibold">Email Address</Label>
-            <Input 
-              value={email} 
-              onChange={(e) => setEmail(e.target.value)} 
-              placeholder="friend@example.com" 
-              className="bg-white/50"
-              data-testid="input-share-email"
-            />
-          </div>
+  const handleDeleteClick = (shareId: number) => {
+    setDeleteTargetId(shareId);
+    setDeleteConfirmOpen(true);
+  };
 
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button 
-              onClick={handleShare} 
-              disabled={shareMutation.isPending || !email} 
-              className="comic-button bg-primary text-white"
-            >
-              {shareMutation.isPending ? "Sharing..." : "Grant Access"}
-            </Button>
+  const confirmDelete = () => {
+    if (deleteTargetId !== null) {
+      deleteShareMutation.mutate({ calendarId, shareId: deleteTargetId });
+      setDeleteConfirmOpen(false);
+      setDeleteTargetId(null);
+    }
+  };
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:bg-primary/10" data-testid="button-share-calendar">
+            <Share2 className="w-3.5 h-3.5" />
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="glass border-white/50 sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Share Calendar</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Email Address</Label>
+              <Input 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                placeholder="friend@example.com" 
+                className="bg-white/50"
+                data-testid="input-share-email"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pb-4 border-b border-white/30">
+              <Button 
+                onClick={handleShare} 
+                disabled={shareMutation.isPending || !email} 
+                className="comic-button bg-primary text-white"
+                size="sm"
+              >
+                {shareMutation.isPending ? "Granting..." : "Grant Access"}
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Users with Access</Label>
+              {sharesLoading ? (
+                <div className="flex items-center justify-center py-4 text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                </div>
+              ) : shares && shares.length > 0 ? (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {shares.map((share) => (
+                    <div 
+                      key={share.id} 
+                      className="flex items-center justify-between bg-white/40 rounded-md p-3 border border-white/30"
+                      data-testid={`share-item-${share.id}`}
+                    >
+                      <span className="text-sm text-gray-900 font-medium">{share.email}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeleteClick(share.id)}
+                        disabled={deleteShareMutation.isPending}
+                        data-testid={`button-delete-share-${share.id}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground py-4">No one has access yet.</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Done</Button>
+            </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent className="glass border-white/50">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke Access</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              Are you sure you want to remove this user's access to the calendar? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex justify-end gap-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmDelete}
+              disabled={deleteShareMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {deleteShareMutation.isPending ? "Removing..." : "Remove"}
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

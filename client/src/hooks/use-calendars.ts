@@ -72,6 +72,7 @@ export function useDeleteCalendar() {
 }
 
 export function useShareCalendar() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
   return useMutation({
@@ -90,8 +91,47 @@ export function useShareCalendar() {
       }
       return api.calendars.share.responses[201].parse(await res.json());
     },
-    onSuccess: () => {
-      toast({ title: "Shared", description: "Calendar invite sent." });
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [api.calendars.shares.path, variables.id] });
+      toast({ title: "Shared", description: "Calendar shared successfully." });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useCalendarShares(calendarId: number) {
+  return useQuery({
+    queryKey: [api.calendars.shares.path, calendarId],
+    queryFn: async () => {
+      const url = buildUrl(api.calendars.shares.path, { id: calendarId });
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        throw new Error("Failed to fetch shares");
+      }
+      return api.calendars.shares.responses[200].parse(await res.json());
+    },
+  });
+}
+
+export function useDeleteShare() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ calendarId, shareId }: { calendarId: number; shareId: number }) => {
+      const url = buildUrl(api.calendars.deleteShare.path, { id: calendarId, shareId });
+      const res = await fetch(url, {
+        method: api.calendars.deleteShare.method,
+        credentials: "include",
+      });
+      
+      if (!res.ok) throw new Error("Failed to delete share");
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [api.calendars.shares.path, variables.calendarId] });
+      toast({ title: "Removed", description: "User access revoked." });
     },
     onError: (error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
