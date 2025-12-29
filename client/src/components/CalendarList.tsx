@@ -43,16 +43,12 @@ export function CalendarList({ selectedCalendarId, onSelectCalendar }: CalendarL
 function CalendarItem({ calendar, isSelected, onSelect }: { calendar: any; isSelected: boolean; onSelect: () => void }) {
   const deleteMutation = useDeleteCalendar();
   const [isShareOpen, setIsShareOpen] = useState(false);
-  const [showCaldav, setShowCaldav] = useState(false);
-  const [copiedCaldav, setCopiedCaldav] = useState(false);
 
-  const isOwner = calendar.role !== 'viewer';
+  const isOwner = calendar.role === 'owner';
   const caldavUrl = `${window.location.origin}/caldav/calendars/${calendar.id}`;
 
   const handleCopyCalDAV = () => {
     navigator.clipboard.writeText(caldavUrl);
-    setCopiedCaldav(true);
-    setTimeout(() => setCopiedCaldav(false), 2000);
   };
 
   return (
@@ -68,23 +64,14 @@ function CalendarItem({ calendar, isSelected, onSelect }: { calendar: any; isSel
           />
           <div className="flex-1">
             <span className="font-medium text-sm">{calendar.title}</span>
-            {calendar.role === 'viewer' && (
-              <span className="text-[10px] ml-2 bg-gray-200 px-1.5 py-0.5 rounded text-gray-500 font-bold uppercase">Shared</span>
+            {calendar.role === 'admin' && calendar.role !== 'owner' && (
+              <span className="text-[10px] ml-2 bg-blue-200 px-1.5 py-0.5 rounded text-blue-600 font-bold uppercase">Shared</span>
             )}
           </div>
         </button>
 
         {isOwner && (
           <div className="flex items-center gap-1">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-6 w-6 text-muted-foreground hover:text-primary"
-              onClick={() => setShowCaldav(!showCaldav)}
-              title="CalDAV URL"
-            >
-              <Copy className="w-3 h-3" />
-            </Button>
             <ShareCalendarDialog 
               calendarId={calendar.id} 
               open={isShareOpen} 
@@ -105,23 +92,6 @@ function CalendarItem({ calendar, isSelected, onSelect }: { calendar: any; isSel
           </div>
         )}
       </div>
-
-      {showCaldav && (
-        <div className="mt-2 text-xs space-y-2">
-          <p className="text-muted-foreground">CalDAV URL:</p>
-          <div className="flex gap-2 bg-white/40 p-2 rounded border border-white/30">
-            <code className="text-[11px] truncate flex-1">{caldavUrl}</code>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5"
-              onClick={handleCopyCalDAV}
-            >
-              {copiedCaldav ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -180,24 +150,15 @@ function CreateCalendarDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: number; open: boolean; onOpenChange: (o: boolean) => void }) {
   const shareMutation = useShareCalendar();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"viewer" | "admin">("viewer");
-  const [caldavUsername, setCaldavUsername] = useState("");
-  const [caldavPassword, setCaldavPassword] = useState("");
 
   const handleShare = () => {
     if (!email) return;
     shareMutation.mutate({ 
       id: calendarId, 
-      email, 
-      role,
-      caldavUsername: caldavUsername || undefined,
-      caldavPassword: caldavPassword || undefined
+      email
     }, {
       onSuccess: () => {
-        onOpenChange(false);
         setEmail("");
-        setCaldavUsername("");
-        setCaldavPassword("");
       }
     });
   };
@@ -205,7 +166,7 @@ function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: n
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:bg-primary/10">
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:bg-primary/10" data-testid="button-share-calendar">
           <Share2 className="w-3.5 h-3.5" />
         </Button>
       </DialogTrigger>
@@ -215,50 +176,14 @@ function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: n
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label className="text-sm font-semibold text-gray-700">Email Address</Label>
+            <Label className="text-sm font-semibold">Email Address</Label>
             <Input 
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
               placeholder="friend@example.com" 
-              className="bg-white/80 border-white/50 text-gray-900"
+              className="bg-white/50"
+              data-testid="input-share-email"
             />
-          </div>
-          <div className="space-y-2">
-             <Label className="text-sm font-semibold text-gray-700">Permission</Label>
-             <select 
-               className="w-full rounded-md border border-white/50 bg-white/80 px-3 py-2 text-sm text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/50"
-               value={role}
-               onChange={(e) => setRole(e.target.value as any)}
-             >
-               <option value="viewer">Viewer (Read only)</option>
-               <option value="admin">Admin (Can edit)</option>
-             </select>
-          </div>
-
-          <div className="border-t border-white/30 pt-4">
-            <p className="text-xs text-muted-foreground mb-3 font-semibold">CalDAV Access (Optional)</p>
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-gray-700">CalDAV Username</Label>
-                <Input 
-                  value={caldavUsername} 
-                  onChange={(e) => setCaldavUsername(e.target.value)} 
-                  placeholder="username" 
-                  className="bg-white/80 border-white/50 text-gray-900 text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-gray-700">CalDAV Password</Label>
-                <Input 
-                  type="password"
-                  value={caldavPassword} 
-                  onChange={(e) => setCaldavPassword(e.target.value)} 
-                  placeholder="password" 
-                  className="bg-white/80 border-white/50 text-gray-900 text-sm"
-                />
-              </div>
-              <p className="text-[11px] text-muted-foreground">Users will need these credentials to access via CalDAV clients</p>
-            </div>
           </div>
 
           <div className="flex justify-end gap-2">
@@ -268,7 +193,7 @@ function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: n
               disabled={shareMutation.isPending || !email} 
               className="comic-button bg-primary text-white"
             >
-              {shareMutation.isPending ? "Sharing..." : "Send Invite"}
+              {shareMutation.isPending ? "Sharing..." : "Grant Access"}
             </Button>
           </div>
         </div>

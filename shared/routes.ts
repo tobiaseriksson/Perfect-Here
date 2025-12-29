@@ -63,10 +63,26 @@ export const api = {
     share: {
       method: 'POST' as const,
       path: '/api/calendars/:id/share',
-      input: z.object({ email: z.string().email(), role: z.enum(['admin', 'viewer']) }),
+      input: z.object({ email: z.string().email() }),
       responses: {
         201: z.custom<typeof calendarShares.$inferSelect>(),
         400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    shares: {
+      method: 'GET' as const,
+      path: '/api/calendars/:id/shares',
+      responses: {
+        200: z.array(z.custom<typeof calendarShares.$inferSelect>()),
+        404: errorSchemas.notFound,
+      },
+    },
+    deleteShare: {
+      method: 'DELETE' as const,
+      path: '/api/calendars/:id/shares/:shareId',
+      responses: {
+        204: z.void(),
         404: errorSchemas.notFound,
       },
     },

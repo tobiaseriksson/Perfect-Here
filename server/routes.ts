@@ -116,7 +116,7 @@ export async function registerRoutes(
   app.post(api.calendars.share.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
-    const access = await checkCalendarAccess(userId, calendarId, 'admin');
+    const access = await checkCalendarAccess(userId, calendarId, 'owner');
 
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
@@ -128,10 +128,8 @@ export async function registerRoutes(
       const share = await storage.shareCalendar({
         calendarId,
         email: input.email,
-        role: input.role,
-        userId: null,
-        caldavUsername: input.caldavUsername,
-        caldavPassword: input.caldavPassword
+        role: "admin",
+        userId: null
       });
       res.status(201).json(share);
     } catch (err) {
@@ -140,6 +138,33 @@ export async function registerRoutes(
       }
       res.status(500).json({ message: "Internal server error" });
     }
+  });
+
+  app.get(api.calendars.shares.path, isAuthenticated, async (req, res) => {
+    const userId = (req.user as any).claims.sub;
+    const calendarId = Number(req.params.id);
+    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+
+    if (!access.allowed) {
+      return res.status(403).json({ message: access.error });
+    }
+
+    const shares = await storage.getCalendarShares(calendarId);
+    res.json(shares);
+  });
+
+  app.delete(api.calendars.deleteShare.path, isAuthenticated, async (req, res) => {
+    const userId = (req.user as any).claims.sub;
+    const calendarId = Number(req.params.id);
+    const shareId = Number(req.params.shareId);
+    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+
+    if (!access.allowed) {
+      return res.status(403).json({ message: access.error });
+    }
+
+    await storage.deleteShare(shareId);
+    res.status(204).send();
   });
 
 
