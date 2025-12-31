@@ -115,6 +115,7 @@ export async function registerRoutes(
 
   app.post(api.calendars.share.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
+    const userEmail = (req.user as any).claims.email;
     const calendarId = Number(req.params.id);
     const access = await checkCalendarAccess(userId, calendarId, 'owner');
 
@@ -124,6 +125,7 @@ export async function registerRoutes(
 
     try {
       const input = api.calendars.share.input.parse(req.body);
+      const calendar = await storage.getCalendar(calendarId);
       
       const share = await storage.shareCalendar({
         calendarId,
@@ -131,11 +133,53 @@ export async function registerRoutes(
         role: "admin",
         userId: null
       });
+
+      // Send email notification
+      await sendShareEmail(input.email, calendar?.title || 'Calendar', userEmail);
+      
       res.status(201).json(share);
     } catch (err) {
        if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // CalDAV sharing endpoint
+  app.post(api.calendars.caldavShare.path, isAuthenticated, async (req, res) => {
+    const userId = (req.user as any).claims.sub;
+    const calendarId = Number(req.params.id);
+    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+
+    if (!access.allowed) {
+      return res.status(403).json({ message: access.error });
+    }
+
+    try {
+      // Generate unique CalDAV credentials
+      const caldavUsername = `cal_${calendarId}_${Math.random().toString(36).substr(2, 9)}`;
+      const caldavPassword = generateRandomPassword(16);
+
+      const share = await storage.shareCalendar({
+        calendarId,
+        email: `caldav-${calendarId}`,
+        role: "admin",
+        userId: null,
+        caldavUsername,
+        caldavPassword
+      });
+
+      const caldavUrl = `${process.env.BASE_URL || 'http://localhost:5000'}/caldav/calendars/${calendarId}`;
+
+      res.status(201).json({
+        id: share.id,
+        caldavUrl,
+        username: caldavUsername,
+        password: caldavPassword
+      });
+    } catch (err) {
+      console.error("CalDAV share error:", err);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -363,4 +407,47 @@ function escapeICS(text: string): string {
     .replace(/;/g, "\\;")
     .replace(/\n/g, "\\n")
     .replace(/\r/g, "");
+}
+
+// Helper to generate random password
+function generateRandomPassword(length: number): string {
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  return password;
+}
+
+// Helper to send share email notification
+async function sendShareEmail(recipientEmail: string, calendarName: string, senderEmail: string): Promise<void> {
+  // This is a placeholder for email sending. In production, use SendGrid, Resend, or another service.
+  // For now, we log the email that would be sent.
+  const appUrl = process.env.BASE_URL || 'http://localhost:5000';
+  const emailContent = `
+    Hi,
+
+    ${senderEmail} has shared the "${calendarName}" calendar with you!
+
+    To access the calendar, please click the link below and log in to GlassCal:
+    ${appUrl}/login
+
+    Once logged in, you'll have full admin access to manage events in the "${calendarName}" calendar.
+
+    Best regards,
+    GlassCal Team
+  `;
+
+  console.log(`📧 EMAIL NOTIFICATION:\nTo: ${recipientEmail}\n\n${emailContent}`);
+  
+  // TODO: Integrate with SendGrid, Resend, or another email service
+  // Example with SendGrid (requires SENDGRID_API_KEY environment variable):
+  // const sgMail = require('@sendgrid/mail');
+  // sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  // await sgMail.send({
+  //   to: recipientEmail,
+  //   from: process.env.SENDER_EMAIL || 'noreply@glassical.local',
+  //   subject: `${senderEmail} shared "${calendarName}" with you`,
+  //   html: emailContent
+  // });
 }

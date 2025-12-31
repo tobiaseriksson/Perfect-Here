@@ -138,3 +138,23 @@ export function useDeleteShare() {
     },
   });
 }
+
+export function useGenerateCalDAVShare() {
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (calendarId: number) => {
+      const url = buildUrl(api.calendars.caldavShare.path, { id: calendarId });
+      const res = await fetch(url, {
+        method: api.calendars.caldavShare.method,
+        credentials: "include",
+      });
+      
+      if (!res.ok) throw new Error("Failed to generate CalDAV share");
+      return api.calendars.caldavShare.responses[201].parse(await res.json());
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+}

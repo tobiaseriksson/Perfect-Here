@@ -20,6 +20,8 @@ export const calendarShares = pgTable("calendar_shares", {
   userId: varchar("user_id").references(() => users.id),
   email: text("email").notNull(),
   role: text("role", { enum: ["admin"] }).notNull().default("admin"),
+  caldavUsername: text("caldav_username"),
+  caldavPassword: text("caldav_password"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

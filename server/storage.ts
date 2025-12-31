@@ -19,6 +19,7 @@ export interface IStorage {
   // Shares
   shareCalendar(share: InsertShare): Promise<CalendarShare>;
   getCalendarShares(calendarId: number): Promise<CalendarShare[]>;
+  getCalendarShareByEmail(calendarId: number, email: string): Promise<CalendarShare | undefined>;
   deleteShare(shareId: number): Promise<void>;
 
   // Events
@@ -78,6 +79,13 @@ export class DatabaseStorage implements IStorage {
   async shareCalendar(share: InsertShare): Promise<CalendarShare> {
     const [newShare] = await db.insert(calendarShares).values(share).returning();
     return newShare;
+  }
+
+  async getCalendarShareByEmail(calendarId: number, email: string): Promise<CalendarShare | undefined> {
+    const [share] = await db.select().from(calendarShares).where(
+      and(eq(calendarShares.calendarId, calendarId), eq(calendarShares.email, email))
+    );
+    return share;
   }
 
   async getCalendarShares(calendarId: number): Promise<CalendarShare[]> {

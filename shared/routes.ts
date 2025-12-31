@@ -86,6 +86,19 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    caldavShare: {
+      method: 'POST' as const,
+      path: '/api/calendars/:id/caldav',
+      responses: {
+        201: z.object({
+          id: z.number(),
+          caldavUrl: z.string(),
+          username: z.string(),
+          password: z.string(),
+        }),
+        403: errorSchemas.unauthorized,
+      },
+    },
   },
   events: {
     list: {

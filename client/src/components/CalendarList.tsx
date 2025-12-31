@@ -1,6 +1,6 @@
-import { useCalendars, useCreateCalendar, useDeleteCalendar, useShareCalendar, useCalendarShares, useDeleteShare } from "@/hooks/use-calendars";
+import { useCalendars, useCreateCalendar, useDeleteCalendar, useShareCalendar, useCalendarShares, useDeleteShare, useGenerateCalDAVShare } from "@/hooks/use-calendars";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Share2, Copy, Check, Loader2 } from "lucide-react";
+import { Plus, Trash2, Share2, Copy, Check, Loader2, Link as LinkIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,6 +86,7 @@ function CalendarItem({ calendar, isSelected, onSelect }: { calendar: any; isSel
               open={isShareOpen} 
               onOpenChange={setIsShareOpen} 
             />
+            <CalDAVShareButton calendarId={calendar.id} />
             <Button 
               variant="ghost" 
               size="icon" 
@@ -151,6 +152,87 @@ function CreateCalendarDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             <Button type="submit" disabled={createMutation.isPending} className="comic-button bg-primary text-white">Create</Button>
           </div>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CalDAVShareButton({ calendarId }: { calendarId: number }) {
+  const caldavMutation = useGenerateCalDAVShare();
+  const [caldavData, setCaldavData] = useState<{ caldavUrl: string; username: string; password: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleGenerate = () => {
+    caldavMutation.mutate(calendarId, {
+      onSuccess: (data) => {
+        setCaldavData(data);
+      }
+    });
+  };
+
+  const handleCopyUrl = () => {
+    if (caldavData) {
+      navigator.clipboard.writeText(caldavData.caldavUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-6 w-6 text-primary hover:bg-primary/10" data-testid="button-caldav-share">
+          <LinkIcon className="w-3 h-3" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="glass border-white/50 sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle className="text-xl">CalDAV Sharing</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          {caldavData ? (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">CalDAV URL</Label>
+                <div className="flex gap-2">
+                  <Input 
+                    value={caldavData.caldavUrl} 
+                    readOnly 
+                    className="bg-white/50 text-xs"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleCopyUrl}
+                    className="flex-shrink-0"
+                  >
+                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Username</Label>
+                <Input value={caldavData.username} readOnly className="bg-white/50 text-xs" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Password</Label>
+                <Input value={caldavData.password} readOnly className="bg-white/50 text-xs" />
+              </div>
+              <p className="text-xs text-muted-foreground">This calendar is read-only. Share the URL above with others to allow them to view events.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 py-4">
+              <p className="text-sm text-muted-foreground">Generate a CalDAV URL to share this calendar with read-only access. Users can add it to their calendar application.</p>
+              <Button 
+                onClick={handleGenerate} 
+                disabled={caldavMutation.isPending}
+                className="w-full comic-button bg-primary text-white"
+              >
+                {caldavMutation.isPending ? "Generating..." : "Generate CalDAV Link"}
+              </Button>
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
