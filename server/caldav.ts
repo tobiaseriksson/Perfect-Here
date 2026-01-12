@@ -27,6 +27,20 @@ function parseBasicAuth(req: Request): { username: string; password: string } | 
   };
 }
 
+router.use((req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  const auth = parseBasicAuth(req);
+  const username = auth?.username || "(no auth)";
+  
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`${timestamp} [caldav] ${req.method} ${req.path} ${res.statusCode} in ${duration}ms :: user=${username}`);
+  });
+  
+  next();
+});
+
 async function caldavAuthByUsername(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const auth = parseBasicAuth(req);
   if (!auth) {
