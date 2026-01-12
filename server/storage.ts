@@ -25,6 +25,7 @@ export interface IStorage {
 
   // CalDAV Shares
   getCaldavShare(calendarId: number): Promise<CaldavShare | undefined>;
+  getCaldavShareByUsername(username: string): Promise<CaldavShare | undefined>;
   createCaldavShare(share: InsertCaldavShare): Promise<CaldavShare>;
   updateCaldavShare(calendarId: number, updates: Partial<InsertCaldavShare>): Promise<CaldavShare>;
   deleteCaldavShare(calendarId: number): Promise<void>;
@@ -106,6 +107,11 @@ export class DatabaseStorage implements IStorage {
 
   async getCaldavShare(calendarId: number): Promise<CaldavShare | undefined> {
     const [share] = await db.select().from(caldavShares).where(eq(caldavShares.calendarId, calendarId));
+    return share;
+  }
+
+  async getCaldavShareByUsername(username: string): Promise<CaldavShare | undefined> {
+    const [share] = await db.select().from(caldavShares).where(eq(caldavShares.username, username));
     return share;
   }
 

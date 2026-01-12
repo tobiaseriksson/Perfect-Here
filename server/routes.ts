@@ -6,6 +6,7 @@ import { api, errorSchemas } from "@shared/routes";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { authStorage } from "./replit_integrations/auth/storage";
+import caldavRouter from "./caldav";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -14,6 +15,14 @@ export async function registerRoutes(
   // Setup Auth
   await setupAuth(app);
   registerAuthRoutes(app);
+
+  // CalDAV routes
+  app.use("/caldav", caldavRouter);
+
+  // .well-known redirect for CalDAV discovery
+  app.get("/.well-known/caldav", (req, res) => {
+    res.redirect(301, "/caldav/");
+  });
 
   // Helper to check calendar access
   async function checkCalendarAccess(userId: string, calendarId: number, requiredRole: 'owner' | 'admin' | 'viewer' = 'viewer') {
@@ -322,53 +331,6 @@ export async function registerRoutes(
 
     await storage.deleteEvent(eventId);
     res.status(204).send();
-  });
-
-  // CalDAV endpoint
-  app.get("/caldav/calendars/:id", async (req, res) => {
-    try {
-      const calendarId = Number(req.params.id);
-      const calendar = await storage.getCalendar(calendarId);
-
-      if (!calendar) {
-        return res.status(404).json({ message: "Calendar not found" });
-      }
-
-      // Check for Basic Auth if CalDAV credentials are set
-      const authHeader = req.headers.authorization;
-      const caldavShare = await storage.getCaldavShare(calendarId);
-
-      if (caldavShare) {
-        // If credentials are required, validate them
-        if (!authHeader || !authHeader.startsWith('Basic ')) {
-          res.setHeader('WWW-Authenticate', 'Basic realm="Calendar"');
-          return res.status(401).json({ message: "Unauthorized" });
-        }
-
-        const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
-        const [username, password] = credentials.split(':');
-
-        if (username !== caldavShare.username || password !== caldavShare.password) {
-          return res.status(401).json({ message: "Invalid credentials" });
-        }
-      }
-
-      // Get events for this calendar
-      const events = await storage.getEvents({
-        calendarId,
-        userId: undefined
-      });
-
-      // Generate iCalendar format
-      const ics = generateICS(calendar, events);
-      
-      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="${calendar.title || 'calendar'}.ics"`);
-      res.send(ics);
-    } catch (err) {
-      console.error("CalDAV error:", err);
-      res.status(500).json({ message: "Internal server error" });
-    }
   });
 
   return httpServer;
