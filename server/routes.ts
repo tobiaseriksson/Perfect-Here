@@ -333,6 +333,19 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // 404 catch-all for non-existing API routes (not frontend routes handled by Vite)
+  app.use("/api/*", (req, res) => {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`${timestamp} [express] 404 ${req.method} ${req.originalUrl} :: Route not found`);
+    res.status(404).json({ message: "Not found" });
+  });
+
+  app.use("/caldav/*", (req, res) => {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`${timestamp} [caldav] 404 ${req.method} ${req.originalUrl} :: Route not found`);
+    res.status(404).send(`<?xml version="1.0" encoding="utf-8"?><error xmlns="DAV:">Not found</error>`);
+  });
+
   return httpServer;
 }
 
