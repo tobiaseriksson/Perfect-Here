@@ -1,4 +1,4 @@
-import { useCalendars, useCreateCalendar, useDeleteCalendar, useShareCalendar, useCalendarShares, useDeleteShare, useGenerateCalDAVShare } from "@/hooks/use-calendars";
+import { useCalendars, useCreateCalendar, useDeleteCalendar, useShareCalendar, useCalendarShares, useDeleteShare, useCaldavShare, useUpdateCaldavShare } from "@/hooks/use-calendars";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Share2, Copy, Check, Loader2, Link as LinkIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -158,32 +158,41 @@ function CreateCalendarDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 }
 
 function CalDAVShareButton({ calendarId }: { calendarId: number }) {
-  const caldavMutation = useGenerateCalDAVShare();
-  const [caldavData, setCaldavData] = useState<{ caldavUrl: string; username: string; password: string } | null>(null);
+  const { data: existingShare, isLoading } = useCaldavShare(calendarId);
+  const updateMutation = useUpdateCaldavShare();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [copied, setCopied] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
 
-  const handleGenerate = () => {
-    caldavMutation.mutate(calendarId, {
-      onSuccess: (data) => {
-        setCaldavData(data);
+  const caldavUrl = `${window.location.origin}/caldav/calendars/${calendarId}`;
+
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (open) {
+      if (existingShare) {
+        setUsername(existingShare.username);
+        setPassword(existingShare.password);
+      } else {
+        setUsername(`cal_${calendarId}_user`);
+        setPassword(generatePassword());
       }
-    });
-  };
-
-  const handleCopyUrl = () => {
-    if (caldavData) {
-      navigator.clipboard.writeText(caldavData.caldavUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
   };
 
+  const handleCopyUrl = () => {
+    navigator.clipboard.writeText(caldavUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSave = () => {
+    if (!username || !password) return;
+    updateMutation.mutate({ calendarId, username, password });
+  };
+
   return (
-    <Dialog onOpenChange={(open) => {
-      if (open && !caldavData && !caldavMutation.isPending) {
-        handleGenerate();
-      }
-    }}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="h-6 w-6 text-primary hover:bg-primary/10" data-testid="button-caldav-share">
           <LinkIcon className="w-3 h-3" />
@@ -194,18 +203,18 @@ function CalDAVShareButton({ calendarId }: { calendarId: number }) {
           <DialogTitle className="text-xl">CalDAV Sharing</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {caldavMutation.isPending ? (
+          {isLoading ? (
             <div className="flex flex-col items-center justify-center py-8 space-y-3">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground font-medium">Generating sharing link...</p>
+              <p className="text-sm text-muted-foreground font-medium">Loading...</p>
             </div>
-          ) : caldavData ? (
+          ) : (
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">CalDAV URL</Label>
                 <div className="flex gap-2">
                   <Input 
-                    value={caldavData.caldavUrl} 
+                    value={caldavUrl} 
                     readOnly 
                     className="bg-white/50 text-xs"
                     data-testid="input-caldav-url"
@@ -225,45 +234,55 @@ function CalDAVShareButton({ calendarId }: { calendarId: number }) {
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold">Username</Label>
                   <Input 
-                    value={caldavData.username} 
-                    onChange={(e) => setCaldavData({ ...caldavData, username: e.target.value })}
+                    value={username} 
+                    onChange={(e) => setUsername(e.target.value)}
                     className="bg-white/50 text-xs" 
+                    placeholder="Enter username"
                     data-testid="input-caldav-username"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold">Password</Label>
                   <Input 
-                    value={caldavData.password} 
-                    onChange={(e) => setCaldavData({ ...caldavData, password: e.target.value })}
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)}
                     type="text"
                     className="bg-white/50 text-xs" 
+                    placeholder="Enter password"
                     data-testid="input-caldav-password"
                   />
                 </div>
               </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  onClick={handleSave}
+                  disabled={updateMutation.isPending || !username || !password}
+                  className="comic-button bg-primary text-white"
+                  data-testid="button-save-caldav"
+                >
+                  {updateMutation.isPending ? "Saving..." : "Save Credentials"}
+                </Button>
+              </div>
               <div className="pt-2 border-t border-white/20">
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Use these credentials in your calendar app (Apple Calendar, Outlook, etc.) to sync this calendar. This is a read-only link.
+                  Set the username and password, then share this URL with anyone who needs CalDAV access. They can use these credentials in their calendar app (Apple Calendar, Outlook, etc.) to sync this calendar.
                 </p>
               </div>
-            </div>
-          ) : (
-            <div className="py-8 text-center">
-              <p className="text-sm text-muted-foreground">Failed to generate CalDAV link. Please try again.</p>
-              <Button 
-                onClick={handleGenerate} 
-                variant="outline" 
-                className="mt-4"
-              >
-                Retry
-              </Button>
             </div>
           )}
         </div>
       </DialogContent>
     </Dialog>
   );
+}
+
+function generatePassword(): string {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let password = '';
+  for (let i = 0; i < 12; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  return password;
 }
 
 function ShareCalendarDialog({ calendarId, open, onOpenChange }: { calendarId: number; open: boolean; onOpenChange: (o: boolean) => void }) {

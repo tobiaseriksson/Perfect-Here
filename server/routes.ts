@@ -336,10 +336,9 @@ export async function registerRoutes(
 
       // Check for Basic Auth if CalDAV credentials are set
       const authHeader = req.headers.authorization;
-      const shares = await storage.getCalendarShares(calendarId);
-      const shareWithAuth = shares.find(s => s.caldavUsername && s.caldavPassword);
+      const caldavShare = await storage.getCaldavShare(calendarId);
 
-      if (shareWithAuth) {
+      if (caldavShare) {
         // If credentials are required, validate them
         if (!authHeader || !authHeader.startsWith('Basic ')) {
           res.setHeader('WWW-Authenticate', 'Basic realm="Calendar"');
@@ -349,7 +348,7 @@ export async function registerRoutes(
         const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
         const [username, password] = credentials.split(':');
 
-        if (username !== shareWithAuth.caldavUsername || password !== shareWithAuth.caldavPassword) {
+        if (username !== caldavShare.username || password !== caldavShare.password) {
           return res.status(401).json({ message: "Invalid credentials" });
         }
       }

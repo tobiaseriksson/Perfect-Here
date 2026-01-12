@@ -139,19 +139,42 @@ export function useDeleteShare() {
   });
 }
 
-export function useGenerateCalDAVShare() {
+export function useCaldavShare(calendarId: number) {
+  return useQuery({
+    queryKey: ['/api/calendars', calendarId, 'caldav'],
+    queryFn: async () => {
+      const url = buildUrl(api.calendars.caldavShare.path, { id: calendarId });
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch CalDAV share");
+      const data = await res.json();
+      return data as { caldavUrl: string; username: string; password: string } | null;
+    },
+  });
+}
+
+export function useUpdateCaldavShare() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (calendarId: number) => {
-      const url = buildUrl(api.calendars.caldavShare.path, { id: calendarId });
+    mutationFn: async ({ calendarId, username, password }: { calendarId: number; username: string; password: string }) => {
+      const url = buildUrl(api.calendars.updateCaldavShare.path, { id: calendarId });
       const res = await fetch(url, {
-        method: api.calendars.caldavShare.method,
+        method: api.calendars.updateCaldavShare.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
         credentials: "include",
       });
       
-      if (!res.ok) throw new Error("Failed to generate CalDAV share");
-      return api.calendars.caldavShare.responses[201].parse(await res.json());
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to update CalDAV share");
+      }
+      return res.json() as Promise<{ caldavUrl: string; username: string; password: string }>;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/calendars', variables.calendarId, 'caldav'] });
+      toast({ title: "Saved", description: "CalDAV credentials updated successfully." });
     },
     onError: (error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
