@@ -1,8 +1,9 @@
 import {
-  calendars, events, calendarShares,
+  calendars, events, calendarShares, caldavShares,
   type Calendar, type InsertCalendar,
   type Event, type InsertEvent,
   type CalendarShare, type InsertShare,
+  type CaldavShare, type InsertCaldavShare,
   users, type User
 } from "@shared/schema";
 import { db } from "./db";
@@ -21,6 +22,12 @@ export interface IStorage {
   getCalendarShares(calendarId: number): Promise<CalendarShare[]>;
   getCalendarShareByEmail(calendarId: number, email: string): Promise<CalendarShare | undefined>;
   deleteShare(shareId: number): Promise<void>;
+
+  // CalDAV Shares
+  getCaldavShare(calendarId: number): Promise<CaldavShare | undefined>;
+  createCaldavShare(share: InsertCaldavShare): Promise<CaldavShare>;
+  updateCaldavShare(calendarId: number, updates: Partial<InsertCaldavShare>): Promise<CaldavShare>;
+  deleteCaldavShare(calendarId: number): Promise<void>;
 
   // Events
   getEvents(params: { calendarId?: number, startDate?: Date, endDate?: Date, userId?: string }): Promise<Event[]>;
@@ -72,6 +79,7 @@ export class DatabaseStorage implements IStorage {
   async deleteCalendar(id: number): Promise<void> {
     // Delete related shares and events first (or rely on cascade if configured, but let's be explicit/safe)
     await db.delete(calendarShares).where(eq(calendarShares.calendarId, id));
+    await db.delete(caldavShares).where(eq(caldavShares.calendarId, id));
     await db.delete(events).where(eq(events.calendarId, id));
     await db.delete(calendars).where(eq(calendars.id, id));
   }
@@ -94,6 +102,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteShare(shareId: number): Promise<void> {
     await db.delete(calendarShares).where(eq(calendarShares.id, shareId));
+  }
+
+  async getCaldavShare(calendarId: number): Promise<CaldavShare | undefined> {
+    const [share] = await db.select().from(caldavShares).where(eq(caldavShares.calendarId, calendarId));
+    return share;
+  }
+
+  async createCaldavShare(share: InsertCaldavShare): Promise<CaldavShare> {
+    const [newShare] = await db.insert(caldavShares).values(share).returning();
+    return newShare;
+  }
+
+  async updateCaldavShare(calendarId: number, updates: Partial<InsertCaldavShare>): Promise<CaldavShare> {
+    const [updated] = await db.update(caldavShares).set(updates).where(eq(caldavShares.calendarId, calendarId)).returning();
+    return updated;
+  }
+
+  async deleteCaldavShare(calendarId: number): Promise<void> {
+    await db.delete(caldavShares).where(eq(caldavShares.calendarId, calendarId));
   }
 
   async getEvents(params: { calendarId?: number, startDate?: Date, endDate?: Date, userId?: string }): Promise<Event[]> {

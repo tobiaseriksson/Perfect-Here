@@ -147,7 +147,7 @@ export async function registerRoutes(
   });
 
   // CalDAV sharing endpoint
-  app.post(api.calendars.caldavShare.path, isAuthenticated, async (req, res) => {
+  app.get(api.calendars.caldavShare.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
     const access = await checkCalendarAccess(userId, calendarId, 'owner');
@@ -157,29 +157,55 @@ export async function registerRoutes(
     }
 
     try {
-      // Generate unique CalDAV credentials
-      const caldavUsername = `cal_${calendarId}_${Math.random().toString(36).substr(2, 9)}`;
-      const caldavPassword = generateRandomPassword(16);
+      const share = await storage.getCaldavShare(calendarId);
+      const caldavUrl = `${process.env.BASE_URL || 'http://localhost:5000'}/caldav/calendars/${calendarId}`;
 
-      const share = await storage.shareCalendar({
-        calendarId,
-        email: `caldav-${calendarId}`,
-        role: "admin",
-        userId: null,
-        caldavUsername,
-        caldavPassword
+      if (!share) {
+        return res.json(null);
+      }
+
+      res.json({
+        caldavUrl,
+        username: share.username,
+        password: share.password
       });
+    } catch (err) {
+      console.error("CalDAV get share error:", err);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post(api.calendars.updateCaldavShare.path, isAuthenticated, async (req, res) => {
+    const userId = (req.user as any).claims.sub;
+    const calendarId = Number(req.params.id);
+    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+
+    if (!access.allowed) {
+      return res.status(403).json({ message: access.error });
+    }
+
+    try {
+      const { username, password } = api.calendars.updateCaldavShare.input.parse(req.body);
+      let share = await storage.getCaldavShare(calendarId);
+
+      if (share) {
+        share = await storage.updateCaldavShare(calendarId, { username, password });
+      } else {
+        share = await storage.createCaldavShare({ calendarId, username, password });
+      }
 
       const caldavUrl = `${process.env.BASE_URL || 'http://localhost:5000'}/caldav/calendars/${calendarId}`;
 
-      res.status(201).json({
-        id: share.id,
+      res.json({
         caldavUrl,
-        username: caldavUsername,
-        password: caldavPassword
+        username: share.username,
+        password: share.password
       });
     } catch (err) {
-      console.error("CalDAV share error:", err);
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("CalDAV update share error:", err);
       res.status(500).json({ message: "Internal server error" });
     }
   });

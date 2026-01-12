@@ -87,11 +87,26 @@ export const api = {
       },
     },
     caldavShare: {
-      method: 'POST' as const,
+      method: 'GET' as const,
       path: '/api/calendars/:id/caldav',
       responses: {
-        201: z.object({
-          id: z.number(),
+        200: z.object({
+          caldavUrl: z.string(),
+          username: z.string(),
+          password: z.string(),
+        }).optional(),
+        403: errorSchemas.unauthorized,
+      },
+    },
+    updateCaldavShare: {
+      method: 'POST' as const,
+      path: '/api/calendars/:id/caldav',
+      input: z.object({
+        username: z.string(),
+        password: z.string(),
+      }),
+      responses: {
+        200: z.object({
           caldavUrl: z.string(),
           username: z.string(),
           password: z.string(),

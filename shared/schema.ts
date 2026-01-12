@@ -20,8 +20,14 @@ export const calendarShares = pgTable("calendar_shares", {
   userId: varchar("user_id").references(() => users.id),
   email: text("email").notNull(),
   role: text("role", { enum: ["admin"] }).notNull().default("admin"),
-  caldavUsername: text("caldav_username"),
-  caldavPassword: text("caldav_password"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const caldavShares = pgTable("caldav_shares", {
+  id: serial("id").primaryKey(),
+  calendarId: integer("calendar_id").notNull().references(() => calendars.id),
+  username: text("username").notNull(),
+  password: text("password").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -47,6 +53,7 @@ export const calendarsRelations = relations(calendars, ({ one, many }) => ({
   }),
   events: many(events),
   shares: many(calendarShares),
+  caldavShares: many(caldavShares),
 }));
 
 export const eventsRelations = relations(events, ({ one }) => ({
@@ -57,6 +64,13 @@ export const eventsRelations = relations(events, ({ one }) => ({
   creator: one(users, {
     fields: [events.createdBy],
     references: [users.id],
+  }),
+}));
+
+export const caldavSharesRelations = relations(caldavShares, ({ one }) => ({
+  calendar: one(calendars, {
+    fields: [caldavShares.calendarId],
+    references: [calendars.id],
   }),
 }));
 
@@ -80,6 +94,7 @@ export const insertEventSchema = createInsertSchema(events)
     endTime: z.union([z.date(), z.string().pipe(z.coerce.date())]),
   });
 export const insertShareSchema = createInsertSchema(calendarShares).omit({ id: true, createdAt: true });
+export const insertCaldavShareSchema = createInsertSchema(caldavShares).omit({ id: true, createdAt: true });
 
 // Types
 export type Calendar = typeof calendars.$inferSelect;
@@ -88,6 +103,8 @@ export type Event = typeof events.$inferSelect;
 export type InsertEvent = z.infer<typeof insertEventSchema>;
 export type CalendarShare = typeof calendarShares.$inferSelect;
 export type InsertShare = z.infer<typeof insertShareSchema>;
+export type CaldavShare = typeof caldavShares.$inferSelect;
+export type InsertCaldavShare = z.infer<typeof insertCaldavShareSchema>;
 
 // API Types
 export type CreateCalendarRequest = InsertCalendar;
