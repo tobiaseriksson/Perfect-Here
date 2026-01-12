@@ -296,7 +296,7 @@ router.all("/principals/", caldavAuthByUsername, async (req: AuthenticatedReques
 });
 
 router.options("/calendars/:id", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
-  res.setHeader("Allow", "OPTIONS, GET, HEAD, PROPFIND, REPORT");
+  res.setHeader("Allow", "OPTIONS, GET, HEAD, PROPFIND, PROPPATCH, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
@@ -401,6 +401,23 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     }
 
     xml += `
+</D:multistatus>`;
+
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.status(207).send(xml);
+    return;
+  }
+
+  if (method === "PROPPATCH") {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}">
+  <D:response>
+    <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
+    <D:propstat>
+      <D:prop/>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
 </D:multistatus>`;
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
