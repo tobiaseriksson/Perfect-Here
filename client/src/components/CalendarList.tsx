@@ -179,7 +179,11 @@ function CalDAVShareButton({ calendarId }: { calendarId: number }) {
   };
 
   return (
-    <Dialog>
+    <Dialog onOpenChange={(open) => {
+      if (open && !caldavData && !caldavMutation.isPending) {
+        handleGenerate();
+      }
+    }}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="h-6 w-6 text-primary hover:bg-primary/10" data-testid="button-caldav-share">
           <LinkIcon className="w-3 h-3" />
@@ -190,8 +194,13 @@ function CalDAVShareButton({ calendarId }: { calendarId: number }) {
           <DialogTitle className="text-xl">CalDAV Sharing</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {caldavData ? (
-            <div className="space-y-3">
+          {caldavMutation.isPending ? (
+            <div className="flex flex-col items-center justify-center py-8 space-y-3">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground font-medium">Generating sharing link...</p>
+            </div>
+          ) : caldavData ? (
+            <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">CalDAV URL</Label>
                 <div className="flex gap-2">
@@ -199,36 +208,55 @@ function CalDAVShareButton({ calendarId }: { calendarId: number }) {
                     value={caldavData.caldavUrl} 
                     readOnly 
                     className="bg-white/50 text-xs"
+                    data-testid="input-caldav-url"
                   />
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="icon"
                     onClick={handleCopyUrl}
                     className="flex-shrink-0"
+                    data-testid="button-copy-caldav-url"
                   >
                     {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                   </Button>
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold">Username</Label>
-                <Input value={caldavData.username} readOnly className="bg-white/50 text-xs" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Username</Label>
+                  <Input 
+                    value={caldavData.username} 
+                    readOnly 
+                    className="bg-white/50 text-xs" 
+                    data-testid="input-caldav-username"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Password</Label>
+                  <Input 
+                    value={caldavData.password} 
+                    readOnly 
+                    type="text"
+                    className="bg-white/50 text-xs" 
+                    data-testid="input-caldav-password"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold">Password</Label>
-                <Input value={caldavData.password} readOnly className="bg-white/50 text-xs" />
+              <div className="pt-2 border-t border-white/20">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Use these credentials in your calendar app (Apple Calendar, Outlook, etc.) to sync this calendar. This is a read-only link.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">This calendar is read-only. Share the URL above with others to allow them to view events.</p>
             </div>
           ) : (
-            <div className="space-y-3 py-4">
-              <p className="text-sm text-muted-foreground">Generate a CalDAV URL to share this calendar with read-only access. Users can add it to their calendar application.</p>
+            <div className="py-8 text-center">
+              <p className="text-sm text-muted-foreground">Failed to generate CalDAV link. Please try again.</p>
               <Button 
                 onClick={handleGenerate} 
-                disabled={caldavMutation.isPending}
-                className="w-full comic-button bg-primary text-white"
+                variant="outline" 
+                className="mt-4"
               >
-                {caldavMutation.isPending ? "Generating..." : "Generate CalDAV Link"}
+                Retry
               </Button>
             </div>
           )}
