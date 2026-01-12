@@ -226,7 +226,7 @@ function CalDAVShareButton({ calendarId }: { calendarId: number }) {
                   <Label className="text-sm font-semibold">Username</Label>
                   <Input 
                     value={caldavData.username} 
-                    readOnly 
+                    onChange={(e) => setCaldavData({ ...caldavData, username: e.target.value })}
                     className="bg-white/50 text-xs" 
                     data-testid="input-caldav-username"
                   />
@@ -235,7 +235,7 @@ function CalDAVShareButton({ calendarId }: { calendarId: number }) {
                   <Label className="text-sm font-semibold">Password</Label>
                   <Input 
                     value={caldavData.password} 
-                    readOnly 
+                    onChange={(e) => setCaldavData({ ...caldavData, password: e.target.value })}
                     type="text"
                     className="bg-white/50 text-xs" 
                     data-testid="input-caldav-password"
