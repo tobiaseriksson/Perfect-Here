@@ -544,6 +544,27 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
   res.status(501).send(xmlError(`Method ${method} not implemented`));
 });
 
+// Schedule inbox/outbox for CalDAV scheduling (no-op handlers)
+router.all(["/schedule-inbox", "/schedule-inbox/"], caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
+  res.setHeader("Content-Length", "0");
+  res.status(200).end();
+});
+
+router.all(["/schedule-outbox", "/schedule-outbox/"], caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
+  res.setHeader("Content-Length", "0");
+  res.status(200).end();
+});
+
+router.all(["/calendars/:id/schedule-inbox", "/calendars/:id/schedule-inbox/"], caldavAuth, (req: AuthenticatedRequest, res: Response) => {
+  res.setHeader("Content-Length", "0");
+  res.status(200).end();
+});
+
+router.all(["/calendars/:id/schedule-outbox", "/calendars/:id/schedule-outbox/"], caldavAuth, (req: AuthenticatedRequest, res: Response) => {
+  res.setHeader("Content-Length", "0");
+  res.status(200).end();
+});
+
 router.get("/calendars/:id/event-:eventId.ics", caldavAuth, async (req: AuthenticatedRequest, res: Response) => {
   const calendar = req.calendar!;
   const eventId = Number(req.params.eventId);
