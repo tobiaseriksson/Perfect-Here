@@ -210,7 +210,7 @@ function generateEtag(calendar: Calendar, events: Event[]): string {
 }
 
 router.options("/", caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
-  res.setHeader("Allow", "OPTIONS, PROPFIND, POST");
+  res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
@@ -269,7 +269,7 @@ router.all("/", caldavAuthByUsername, async (req: AuthenticatedRequest, res: Res
 });
 
 router.options("/principals/", caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
-  res.setHeader("Allow", "OPTIONS, PROPFIND, POST");
+  res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
@@ -330,7 +330,7 @@ router.all("/principals/", caldavAuthByUsername, async (req: AuthenticatedReques
 });
 
 router.options("/calendars/:id", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
-  res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PROPFIND, PROPPATCH, REPORT");
+  res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
@@ -491,7 +491,7 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
   const baseUrl = `${req.protocol}://${req.get("host")}`;
 
   if (method === "OPTIONS") {
-    res.setHeader("Allow", "OPTIONS, PROPFIND, POST");
+    res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
     res.setHeader("DAV", "1, 2, calendar-access");
     res.setHeader("Content-Length", "0");
     res.status(200).end();
