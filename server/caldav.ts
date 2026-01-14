@@ -375,6 +375,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
         </C:supported-calendar-component-set>
         <C:calendar-description>${escapeXml(calendar.description || "")}</C:calendar-description>
         <CS:getctag>${etag}</CS:getctag>
+        <D:sync-token>http://glasscal.app/sync/${calendarId}-${etag.replace(/"/g, "")}</D:sync-token>
         <D:current-user-principal>
           <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
         </D:current-user-principal>
