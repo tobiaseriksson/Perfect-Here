@@ -27,9 +27,10 @@ const formSchema = insertEventSchema.extend({
 }).refine((data) => {
   const start = new Date(data.startTime);
   const end = new Date(data.endTime);
-  return end >= start;
+  const minDuration = 5 * 60 * 1000; // 5 minutes in ms
+  return end.getTime() - start.getTime() >= minDuration;
 }, {
-  message: "End time cannot be before start time",
+  message: "Event must be at least 5 minutes long",
   path: ["endTime"],
 });
 

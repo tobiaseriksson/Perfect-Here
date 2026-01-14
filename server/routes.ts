@@ -266,11 +266,12 @@ export async function registerRoutes(
     try {
       const input = api.events.create.input.parse(req.body);
       
-      // Validate end time is not before start time
+      // Validate end time is at least 5 minutes after start time
       const startTime = new Date(input.startTime);
       const endTime = new Date(input.endTime);
-      if (endTime < startTime) {
-        return res.status(400).json({ message: "End time cannot be before start time" });
+      const minDuration = 5 * 60 * 1000; // 5 minutes in ms
+      if (endTime.getTime() - startTime.getTime() < minDuration) {
+        return res.status(400).json({ message: "Event must be at least 5 minutes long" });
       }
       
       const access = await checkCalendarAccess(userId, input.calendarId, 'admin');
@@ -314,11 +315,12 @@ export async function registerRoutes(
       if (updateData.startTime) updateData.startTime = new Date(updateData.startTime);
       if (updateData.endTime) updateData.endTime = new Date(updateData.endTime);
       
-      // Validate end time is not before start time
+      // Validate end time is at least 5 minutes after start time
       const finalStartTime = updateData.startTime || event.startTime;
       const finalEndTime = updateData.endTime || event.endTime;
-      if (new Date(finalEndTime) < new Date(finalStartTime)) {
-        return res.status(400).json({ message: "End time cannot be before start time" });
+      const minDuration = 5 * 60 * 1000; // 5 minutes in ms
+      if (new Date(finalEndTime).getTime() - new Date(finalStartTime).getTime() < minDuration) {
+        return res.status(400).json({ message: "Event must be at least 5 minutes long" });
       }
       
       const updated = await storage.updateEvent(eventId, updateData);
