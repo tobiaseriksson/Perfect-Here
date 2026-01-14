@@ -45,59 +45,31 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-async function caldavAuthByUsername(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const auth = parseBasicAuth(req);
-  if (!auth) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="GlassCal CalDAV"');
-    return res.status(401).send(xmlError("Authentication required"));
-  }
-
-  const caldavShare = await storage.getCaldavShareByUsername(auth.username);
-  if (!caldavShare || caldavShare.password !== auth.password) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="GlassCal CalDAV"');
-    return res.status(401).send(xmlError("Invalid credentials"));
-  }
-
-  const calendar = await storage.getCalendar(caldavShare.calendarId);
-  if (!calendar) {
-    return res.status(404).send(xmlError("Calendar not found"));
-  }
-
-  req.caldavShare = caldavShare;
-  req.calendar = calendar;
-  next();
-}
-
 async function caldavAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const calendarId = Number(req.params.id);
-  
-  if (isNaN(calendarId)) {
-    return res.status(400).send(xmlError("Invalid calendar ID"));
-  }
-
-  const calendar = await storage.getCalendar(calendarId);
-  if (!calendar) {
-    return res.status(404).send(xmlError("Calendar not found"));
-  }
-
-  const caldavShare = await storage.getCaldavShare(calendarId);
-  if (!caldavShare) {
-    return res.status(403).send(xmlError("CalDAV not enabled for this calendar"));
-  }
-
   const auth = parseBasicAuth(req);
   if (!auth) {
     res.setHeader("WWW-Authenticate", 'Basic realm="GlassCal CalDAV"');
     return res.status(401).send(xmlError("Authentication required"));
   }
 
-  if (auth.username !== caldavShare.username || auth.password !== caldavShare.password) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="GlassCal CalDAV"');
-    return res.status(401).send(xmlError("Invalid credentials"));
+  // Try to find the share by username first (for principal discovery)
+  let caldavShare = await storage.getCaldavShareByUsername(auth.username);
+
+  // If not found by username, maybe it's a path-based auth with calendar ID
+  if (!caldavShare && req.params.id) {
+    const calendarId = Number(req.params.id);
+    if (!isNaN(calendarId)) {
+      caldavShare = await storage.getCaldavShare(calendarId);
+    }
+  }
+
+  if (!caldavShare || caldavShare.password !== auth.password || (caldavShare.username !== auth.username && !req.params.id)) {
+     res.setHeader("WWW-Authenticate", 'Basic realm="GlassCal CalDAV"');
+     return res.status(401).send(xmlError("Invalid credentials"));
   }
 
   req.caldavShare = caldavShare;
-  req.calendar = calendar;
+  req.calendar = await storage.getCalendar(caldavShare.calendarId);
   next();
 }
 
@@ -212,14 +184,14 @@ function generateEtag(calendar: Calendar, events: Event[]): string {
   return `"${Math.abs(hash).toString(16)}"`;
 }
 
-router.options("/", caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
+router.options("/", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
   res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
 });
 
-router.all("/", caldavAuthByUsername, async (req: AuthenticatedRequest, res: Response) => {
+router.all("/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => {
   const method = req.method.toUpperCase();
   const calendar = req.calendar!;
   const calendarId = calendar.id;
@@ -271,14 +243,14 @@ router.all("/", caldavAuthByUsername, async (req: AuthenticatedRequest, res: Res
   res.status(501).send(xmlError(`Method ${method} not implemented`));
 });
 
-router.options("/principals/", caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
+router.options("/principals/", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
   res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
 });
 
-router.all("/principals/", caldavAuthByUsername, async (req: AuthenticatedRequest, res: Response) => {
+router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => {
   const method = req.method.toUpperCase();
   const calendar = req.calendar!;
   const calendarId = calendar.id;
@@ -583,12 +555,12 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
 });
 
 // Schedule inbox/outbox for CalDAV scheduling (no-op handlers)
-router.all(["/schedule-inbox", "/schedule-inbox/"], caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
+router.all(["/schedule-inbox", "/schedule-inbox/"], caldavAuth, (req: AuthenticatedRequest, res: Response) => {
   res.setHeader("Content-Length", "0");
   res.status(200).end();
 });
 
-router.all(["/schedule-outbox", "/schedule-outbox/"], caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
+router.all(["/schedule-outbox", "/schedule-outbox/"], caldavAuth, (req: AuthenticatedRequest, res: Response) => {
   res.setHeader("Content-Length", "0");
   res.status(200).end();
 });

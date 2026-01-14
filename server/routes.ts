@@ -25,14 +25,14 @@ export async function registerRoutes(
   });
 
   // Helper to check calendar access
-  async function checkCalendarAccess(userId: string, calendarId: number, requiredRole: 'owner' | 'admin' | 'viewer' = 'viewer') {
+  async function checkCalendarAccess(userId: string, userEmail: string | undefined, calendarId: number, requiredRole: 'owner' | 'admin' | 'viewer' = 'viewer') {
     const calendar = await storage.getCalendar(calendarId);
     if (!calendar) return { allowed: false, error: 'Calendar not found' };
 
     if (calendar.ownerId === userId) return { allowed: true, role: 'owner' };
 
     const shares = await storage.getCalendarShares(calendarId);
-    const userShare = shares.find(s => s.userId === userId || s.email === (req.user as any).claims?.email);
+    const userShare = shares.find(s => s.userId === userId || (userEmail && s.email === userEmail));
 
     if (!userShare) return { allowed: false, error: 'Access denied' };
 
@@ -78,7 +78,8 @@ export async function registerRoutes(
   app.get(api.calendars.get.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
-    const access = await checkCalendarAccess(userId, calendarId);
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, calendarId);
 
     if (!access.allowed) {
       return res.status(404).json({ message: access.error });
@@ -91,7 +92,8 @@ export async function registerRoutes(
   app.put(api.calendars.update.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
-    const access = await checkCalendarAccess(userId, calendarId, 'admin'); // Owner or admin can update? Usually owner or admin.
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, calendarId, 'admin'); // Owner or admin can update? Usually owner or admin.
 
     if (!access.allowed) {
       return res.status(404).json({ message: access.error });
@@ -112,7 +114,8 @@ export async function registerRoutes(
   app.delete(api.calendars.delete.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
-    const access = await checkCalendarAccess(userId, calendarId, 'owner'); // Only owner can delete
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, calendarId, 'owner'); // Only owner can delete
 
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
@@ -126,7 +129,7 @@ export async function registerRoutes(
     const userId = (req.user as any).claims.sub;
     const userEmail = (req.user as any).claims.email;
     const calendarId = Number(req.params.id);
-    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+    const access = await checkCalendarAccess(userId, userEmail, calendarId, 'owner');
 
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
@@ -159,7 +162,8 @@ export async function registerRoutes(
   app.get(api.calendars.caldavShare.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
-    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, calendarId, 'owner');
 
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
@@ -187,7 +191,8 @@ export async function registerRoutes(
   app.post(api.calendars.updateCaldavShare.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
-    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, calendarId, 'owner');
 
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
@@ -222,7 +227,8 @@ export async function registerRoutes(
   app.get(api.calendars.shares.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
-    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, calendarId, 'owner');
 
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
@@ -236,7 +242,8 @@ export async function registerRoutes(
     const userId = (req.user as any).claims.sub;
     const calendarId = Number(req.params.id);
     const shareId = Number(req.params.shareId);
-    const access = await checkCalendarAccess(userId, calendarId, 'owner');
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, calendarId, 'owner');
 
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
@@ -274,7 +281,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Event must be at least 5 minutes long" });
       }
       
-      const access = await checkCalendarAccess(userId, input.calendarId, 'admin');
+      const userEmail = (req.user as any).claims?.email;
+      const access = await checkCalendarAccess(userId, userEmail, input.calendarId, 'admin');
       
       if (!access.allowed) {
         return res.status(403).json({ message: access.error });
@@ -304,7 +312,8 @@ export async function registerRoutes(
       return res.status(404).json({ message: "Event not found" });
     }
 
-    const access = await checkCalendarAccess(userId, event.calendarId, 'admin');
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, event.calendarId, 'admin');
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
     }
@@ -342,7 +351,8 @@ export async function registerRoutes(
       return res.status(404).json({ message: "Event not found" });
     }
 
-    const access = await checkCalendarAccess(userId, event.calendarId, 'admin');
+    const userEmail = (req.user as any).claims?.email;
+    const access = await checkCalendarAccess(userId, userEmail, event.calendarId, 'admin');
     if (!access.allowed) {
       return res.status(403).json({ message: access.error });
     }
