@@ -24,6 +24,13 @@ const formSchema = insertEventSchema.extend({
   calendarId: z.coerce.number(),
   startTime: z.string(),
   endTime: z.string(),
+}).refine((data) => {
+  const start = new Date(data.startTime);
+  const end = new Date(data.endTime);
+  return end >= start;
+}, {
+  message: "End time cannot be before start time",
+  path: ["endTime"],
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -132,6 +139,7 @@ export function EventDialog({ isOpen, onClose, selectedDate, eventToEdit }: Even
             <div className="space-y-2">
               <Label className="text-sm font-semibold text-gray-700">End Time</Label>
               <Input type="datetime-local" {...form.register("endTime")} className="bg-white/80 border-white/50 text-gray-900 focus:bg-white" />
+              {form.formState.errors.endTime && <p className="text-destructive text-sm">{form.formState.errors.endTime.message}</p>}
             </div>
           </div>
 

@@ -265,6 +265,14 @@ export async function registerRoutes(
     const userId = (req.user as any).claims.sub;
     try {
       const input = api.events.create.input.parse(req.body);
+      
+      // Validate end time is not before start time
+      const startTime = new Date(input.startTime);
+      const endTime = new Date(input.endTime);
+      if (endTime < startTime) {
+        return res.status(400).json({ message: "End time cannot be before start time" });
+      }
+      
       const access = await checkCalendarAccess(userId, input.calendarId, 'admin');
       
       if (!access.allowed) {
@@ -273,8 +281,8 @@ export async function registerRoutes(
 
       const event = await storage.createEvent({
         ...input,
-        startTime: new Date(input.startTime),
-        endTime: new Date(input.endTime),
+        startTime,
+        endTime,
         createdBy: userId
       });
       res.status(201).json(event);
@@ -305,6 +313,14 @@ export async function registerRoutes(
       const updateData = { ...input };
       if (updateData.startTime) updateData.startTime = new Date(updateData.startTime);
       if (updateData.endTime) updateData.endTime = new Date(updateData.endTime);
+      
+      // Validate end time is not before start time
+      const finalStartTime = updateData.startTime || event.startTime;
+      const finalEndTime = updateData.endTime || event.endTime;
+      if (new Date(finalEndTime) < new Date(finalStartTime)) {
+        return res.status(400).json({ message: "End time cannot be before start time" });
+      }
+      
       const updated = await storage.updateEvent(eventId, updateData);
       res.json(updated);
     } catch (err) {
