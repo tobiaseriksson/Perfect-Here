@@ -204,15 +204,14 @@ router.all("/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => 
     <D:href>${baseUrl}/caldav/</D:href>
     <D:propstat>
       <D:prop>
-        <D:resourcetype>
-          <D:collection/>
-        </D:resourcetype>
+        <D:resourcetype><D:collection/></D:resourcetype>
         <D:current-user-principal>
           <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
         </D:current-user-principal>
         <C:calendar-home-set>
           <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
         </C:calendar-home-set>
+        <D:owner><D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href></D:owner>
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
@@ -263,10 +262,7 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
     <D:href>${baseUrl}/caldav/principals/</D:href>
     <D:propstat>
       <D:prop>
-        <D:resourcetype>
-          <D:collection/>
-          <D:principal/>
-        </D:resourcetype>
+        <D:resourcetype><D:collection/></D:resourcetype>
         <D:displayname>Calendar User</D:displayname>
         <C:calendar-home-set>
           <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
@@ -274,6 +270,7 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
         <D:current-user-principal>
           <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
         </D:current-user-principal>
+        <D:owner><D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href></D:owner>
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
@@ -339,22 +336,21 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
     <D:propstat>
       <D:prop>
-        <D:resourcetype>
-          <D:collection/>
-          <C:calendar/>
-        </D:resourcetype>
+        <D:resourcetype><D:collection/></D:resourcetype>
+        <D:resourcetype><C:calendar/></D:resourcetype>
         <D:displayname>${escapeXml(calendar.title)}</D:displayname>
         <D:getetag>${etag}</D:getetag>
         <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
         <C:supported-calendar-component-set>
           <C:comp name="VEVENT"/>
         </C:supported-calendar-component-set>
-        <C:calendar-description>${escapeXml(calendar.description || "")}</C:calendar-description>
+        <C:calendar-description>${escapeXml(calendar.description || " ")}</C:calendar-description>
         <CS:getctag>${etag}</CS:getctag>
-        <D:sync-token>http://glasscal.app/sync/${calendarId}-${etag.replace(/"/g, "")}</D:sync-token>
+        <D:sync-token>urn:uuid:${calendarId}-${etag.replace(/"/g, "")}</D:sync-token>
         <D:current-user-principal>
           <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
         </D:current-user-principal>
+        <D:owner><D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href></D:owner>
         <C:calendar-home-set>
           <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
         </C:calendar-home-set>
@@ -513,10 +509,7 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
     <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
     <D:propstat>
       <D:prop>
-        <D:resourcetype>
-          <D:collection/>
-          <D:principal/>
-        </D:resourcetype>
+        <D:resourcetype><D:principal/></D:resourcetype>
         <D:displayname>Calendar User</D:displayname>
         <C:calendar-home-set>
           <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
@@ -524,6 +517,7 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
         <D:current-user-principal>
           <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
         </D:current-user-principal>
+        <D:owner><D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href></D:owner>
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
