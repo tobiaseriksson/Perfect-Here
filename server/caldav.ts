@@ -31,11 +31,12 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   const auth = parseBasicAuth(req);
   const username = auth?.username || "(no auth)";
+  const httpVersion = req.httpVersion;
   
   res.on("finish", () => {
     const duration = Date.now() - start;
     const timestamp = new Date().toLocaleTimeString();
-    console.log(`${timestamp} [caldav] ${req.method} ${req.path} ${res.statusCode} in ${duration}ms :: user=${username}`);
+    console.log(`${timestamp} [caldav] HTTP/${httpVersion} ${req.method} ${req.path} ${res.statusCode} in ${duration}ms :: user=${username}`);
   });
   
   next();
