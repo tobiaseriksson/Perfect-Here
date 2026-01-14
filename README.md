@@ -519,36 +519,49 @@ Delete an event. Requires admin access to the calendar.
 
 These endpoints implement the CalDAV protocol for calendar subscription in apps like Apple Calendar, Outlook, and other CalDAV clients. Authentication uses HTTP Basic Auth with CalDAV credentials.
 
-#### `GET /.well-known/caldav`
+**Note:** This is a read-only CalDAV implementation. PUT and DELETE methods return 200 OK but do not modify data.
+
+---
+
+#### Service Discovery
+
+##### `GET /.well-known/caldav`
 CalDAV service discovery endpoint.
 
 **Response 302:** Redirects to `/caldav/`
 
-#### `OPTIONS /caldav/`
+---
+
+#### Root Endpoint `/caldav/`
+
+##### `OPTIONS /caldav/`
 Returns supported CalDAV methods.
 
-**Response Headers:**
+**Response 200:**
 ```
-Allow: OPTIONS, GET, HEAD, POST, PROPFIND, PROPPATCH, REPORT
+Allow: OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT
 DAV: 1, 2, calendar-access
+Content-Length: 0
 ```
 
-#### `PROPFIND /caldav/`
-Discover available calendars.
+##### `PROPFIND /caldav/`
+Discover available calendars and principal information.
 
 **Response 207:** (Multi-Status XML)
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <D:response>
-    <D:href>/caldav/calendars/1</D:href>
+    <D:href>/caldav/</D:href>
     <D:propstat>
       <D:prop>
-        <D:displayname>Work Calendar</D:displayname>
-        <D:resourcetype>
-          <D:collection/>
-          <C:calendar/>
-        </D:resourcetype>
+        <D:resourcetype><D:collection/></D:resourcetype>
+        <D:current-user-principal>
+          <D:href>/caldav/principals/1/</D:href>
+        </D:current-user-principal>
+        <C:calendar-home-set>
+          <D:href>/caldav/calendars/1/</D:href>
+        </C:calendar-home-set>
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
@@ -556,7 +569,68 @@ Discover available calendars.
 </D:multistatus>
 ```
 
-#### `GET /caldav/calendars/:id`
+##### `POST /caldav/`
+Generic POST handler for CalDAV operations.
+
+**Response 207:** (Multi-Status XML)
+
+---
+
+#### Principals Endpoints `/caldav/principals/`
+
+##### `OPTIONS /caldav/principals/`
+Returns supported methods for principals.
+
+**Response 200:**
+```
+Allow: OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT
+DAV: 1, 2, calendar-access
+Content-Length: 0
+```
+
+##### `PROPFIND /caldav/principals/`
+Get principal collection information.
+
+**Response 207:** (Multi-Status XML with principal info)
+
+##### `PROPFIND /caldav/principals/:id/`
+Get specific principal information.
+
+**Response 207:** (Multi-Status XML)
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:response>
+    <D:href>/caldav/principals/1/</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:resourcetype><D:collection/><D:principal/></D:resourcetype>
+        <D:displayname>Calendar User</D:displayname>
+        <C:calendar-home-set>
+          <D:href>/caldav/calendars/1/</D:href>
+        </C:calendar-home-set>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>
+```
+
+---
+
+#### Calendar Endpoints `/caldav/calendars/:id`
+
+##### `OPTIONS /caldav/calendars/:id`
+Returns supported methods for calendar resources.
+
+**Response 200:**
+```
+Allow: OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT
+DAV: 1, 2, calendar-access
+Content-Length: 0
+```
+
+##### `GET /caldav/calendars/:id`
 Get full calendar in iCalendar format.
 
 **Response 200:**
@@ -580,8 +654,36 @@ END:VEVENT
 END:VCALENDAR
 ```
 
-#### `REPORT /caldav/calendars/:id`
-Calendar query/multiget for sync operations.
+##### `PROPFIND /caldav/calendars/:id`
+Get calendar properties and optionally list events.
+
+**Request Headers:**
+- `Depth: 0` - Calendar properties only
+- `Depth: 1` - Calendar properties + event list
+
+**Response 207:** (Multi-Status XML)
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:response>
+    <D:href>/caldav/calendars/1/</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:displayname>Work Calendar</D:displayname>
+        <D:resourcetype><D:collection/><C:calendar/></D:resourcetype>
+        <D:getetag>"abc123"</D:getetag>
+        <D:sync-token>http://glasscal.app/sync/1-abc123</D:sync-token>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>
+```
+
+##### `REPORT /caldav/calendars/:id`
+Calendar query/multiget for sync operations. Also handles free-busy queries.
+
+**For calendar-multiget/calendar-query:**
 
 **Response 207:** (Multi-Status XML with individual events)
 ```xml
@@ -608,7 +710,60 @@ END:VCALENDAR</C:calendar-data>
 </D:multistatus>
 ```
 
-#### `GET /caldav/calendars/:id/event-:eventId.ics`
+**For free-busy-query:**
+
+**Response 200:**
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<C:schedule-response xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <C:response>
+    <C:recipient><D:href>mailto:unknown@example.com</D:href></C:recipient>
+    <C:request-status>2.0;Success</C:request-status>
+    <C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//GlassCal//CalDAV//EN
+CALSCALE:GREGORIAN
+METHOD:REPLY
+BEGIN:VFREEBUSY
+DTSTAMP:20250114T120000Z
+UID:freebusy-1@glasscal.local
+END:VFREEBUSY
+END:VCALENDAR</C:calendar-data>
+  </C:response>
+</C:schedule-response>
+```
+
+##### `PROPPATCH /caldav/calendars/:id`
+Update calendar properties (no-op, returns success).
+
+**Response 207:** (Multi-Status XML)
+
+##### `POST /caldav/calendars/:id`
+Generic POST handler for calendar operations.
+
+**Response 207:** (Multi-Status XML)
+
+##### `PUT /caldav/calendars/:id`
+Create/update events (no-op for read-only, returns success).
+
+**Response 200:**
+```
+Content-Length: 0
+```
+
+##### `DELETE /caldav/calendars/:id`
+Delete events (no-op for read-only, returns success).
+
+**Response 200:**
+```
+Content-Length: 0
+```
+
+---
+
+#### Individual Event Endpoints
+
+##### `GET /caldav/calendars/:id/event-:eventId.ics`
 Get individual event in iCalendar format.
 
 **Response 200:**
@@ -626,6 +781,44 @@ SUMMARY:Team Meeting
 END:VEVENT
 END:VCALENDAR
 ```
+
+---
+
+#### Scheduling Endpoints
+
+##### `POST /caldav/schedule-inbox/`
+Schedule inbox for receiving scheduling messages.
+
+**Response 200:**
+```
+Content-Length: 0
+```
+
+##### `POST /caldav/schedule-outbox/`
+Schedule outbox for sending scheduling messages (free-busy requests, invitations).
+
+**Response 200:**
+```
+Content-Length: 0
+```
+
+##### `POST /caldav/calendars/:id/schedule-inbox/`
+Calendar-specific schedule inbox.
+
+**Response 200:**
+```
+Content-Length: 0
+```
+
+##### `POST /caldav/calendars/:id/schedule-outbox/`
+Calendar-specific schedule outbox.
+
+**Response 200:**
+```
+Content-Length: 0
+```
+
+**Note:** All scheduling endpoints accept any HTTP method (OPTIONS, GET, POST, PUT, DELETE, etc.) and return 200 OK with empty body.
 
 ---
 
