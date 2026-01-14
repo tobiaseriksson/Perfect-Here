@@ -1,8 +1,11 @@
-import { Router, Request, Response, NextFunction } from "express";
+import { Router, Request, Response, NextFunction, text } from "express";
 import { storage } from "./storage";
 import type { Calendar, Event, CaldavShare } from "@shared/schema";
 
 const router = Router();
+
+// Parse raw XML/text body for CalDAV requests
+router.use(text({ type: ["application/xml", "text/xml", "text/plain", "*/*"] }));
 
 const DAV_NS = "DAV:";
 const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
@@ -414,6 +417,37 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
   }
 
   if (method === "REPORT") {
+    const body = typeof req.body === 'string' ? req.body : '';
+    const bodyLower = body.toLowerCase();
+    
+    // Check if this is a free-busy-query (case-insensitive, namespace-aware)
+    if (bodyLower.includes('free-busy-query') || bodyLower.includes('freebusy')) {
+      // Return empty free-busy response
+      const now = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+      const xml = `<?xml version="1.0" encoding="utf-8"?>
+<C:schedule-response xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}">
+  <C:response>
+    <C:recipient>
+      <D:href>mailto:unknown@example.com</D:href>
+    </C:recipient>
+    <C:request-status>2.0;Success</C:request-status>
+    <C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//GlassCal//CalDAV//EN
+CALSCALE:GREGORIAN
+METHOD:REPLY
+BEGIN:VFREEBUSY
+DTSTAMP:${now}
+UID:freebusy-${calendarId}@glasscal.local
+END:VFREEBUSY
+END:VCALENDAR</C:calendar-data>
+  </C:response>
+</C:schedule-response>`;
+      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.status(200).send(xml);
+      return;
+    }
+    
     const events = await storage.getEvents({ calendarId, userId: undefined });
 
     let xml = `<?xml version="1.0" encoding="utf-8"?>
@@ -477,7 +511,9 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
   }
 
   if (method === "PUT" || method === "DELETE") {
-    res.status(405).send(xmlError("Method not allowed - read-only calendar"));
+    // Return 200 OK as no-op for read-only calendar (macOS compatibility)
+    res.setHeader("Content-Length", "0");
+    res.status(200).end();
     return;
   }
 
