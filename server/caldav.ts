@@ -141,6 +141,7 @@ function generateEventICS(event: Event, calendarId: number): string {
   let ics = "BEGIN:VCALENDAR\r\n";
   ics += "VERSION:2.0\r\n";
   ics += "PRODID:-//GlassCal//CalDAV//EN\r\n";
+  ics += "CALSCALE:GREGORIAN\r\n";
   ics += "BEGIN:VEVENT\r\n";
   ics += `UID:${uid}\r\n`;
   ics += `DTSTAMP:${now}\r\n`;
