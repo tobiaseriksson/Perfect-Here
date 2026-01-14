@@ -209,7 +209,7 @@ function generateEtag(calendar: Calendar, events: Event[]): string {
 }
 
 router.options("/", caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
-  res.setHeader("Allow", "OPTIONS, PROPFIND");
+  res.setHeader("Allow", "OPTIONS, PROPFIND, POST");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
@@ -248,11 +248,27 @@ router.all("/", caldavAuthByUsername, async (req: AuthenticatedRequest, res: Res
     return;
   }
 
+  if (method === "POST") {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}">
+  <D:response>
+    <D:href>${baseUrl}/caldav/</D:href>
+    <D:propstat>
+      <D:prop/>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>`;
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.status(207).send(xml);
+    return;
+  }
+
   res.status(501).send(xmlError(`Method ${method} not implemented`));
 });
 
 router.options("/principals/", caldavAuthByUsername, (req: AuthenticatedRequest, res: Response) => {
-  res.setHeader("Allow", "OPTIONS, PROPFIND");
+  res.setHeader("Allow", "OPTIONS, PROPFIND, POST");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
@@ -293,11 +309,27 @@ router.all("/principals/", caldavAuthByUsername, async (req: AuthenticatedReques
     return;
   }
 
+  if (method === "POST") {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}">
+  <D:response>
+    <D:href>${baseUrl}/caldav/principals/</D:href>
+    <D:propstat>
+      <D:prop/>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>`;
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.status(207).send(xml);
+    return;
+  }
+
   res.status(501).send(xmlError(`Method ${method} not implemented`));
 });
 
 router.options("/calendars/:id", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
-  res.setHeader("Allow", "OPTIONS, GET, HEAD, PROPFIND, PROPPATCH, REPORT");
+  res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PROPFIND, PROPPATCH, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
@@ -426,7 +458,23 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     return;
   }
 
-  if (method === "PUT" || method === "DELETE" || method === "POST") {
+  if (method === "POST") {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}">
+  <D:response>
+    <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
+    <D:propstat>
+      <D:prop/>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>`;
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.status(207).send(xml);
+    return;
+  }
+
+  if (method === "PUT" || method === "DELETE") {
     res.status(405).send(xmlError("Method not allowed - read-only calendar"));
     return;
   }
@@ -441,7 +489,7 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
   const baseUrl = `${req.protocol}://${req.get("host")}`;
 
   if (method === "OPTIONS") {
-    res.setHeader("Allow", "OPTIONS, PROPFIND");
+    res.setHeader("Allow", "OPTIONS, PROPFIND, POST");
     res.setHeader("DAV", "1, 2, calendar-access");
     res.setHeader("Content-Length", "0");
     res.status(200).end();
@@ -472,6 +520,22 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
   </D:response>
 </D:multistatus>`;
 
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.status(207).send(xml);
+    return;
+  }
+
+  if (method === "POST") {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}">
+  <D:response>
+    <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
+    <D:propstat>
+      <D:prop/>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>`;
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(207).send(xml);
     return;
