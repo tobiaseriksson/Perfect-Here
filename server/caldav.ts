@@ -40,16 +40,73 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   const username = auth?.username || "(no auth)";
   const httpVersion = req.httpVersion;
   
+  // Capture response body
+  let responseBody: string | undefined = undefined;
+  const originalSend = res.send;
+  const originalEnd = res.end;
+  
+  res.send = function(body?: any) {
+    if (body !== undefined && !responseBody) {
+      if (typeof body === 'string') {
+        responseBody = body;
+      } else if (Buffer.isBuffer(body)) {
+        responseBody = body.toString('utf8');
+      } else {
+        try {
+          responseBody = JSON.stringify(body);
+        } catch (e) {
+          responseBody = String(body);
+        }
+      }
+    }
+    return originalSend.call(this, body);
+  };
+  
+  res.end = function(chunk?: any, encoding?: any) {
+    if (chunk !== undefined && !responseBody) {
+      if (typeof chunk === 'string') {
+        responseBody = chunk;
+      } else if (Buffer.isBuffer(chunk)) {
+        responseBody = chunk.toString('utf8');
+      } else {
+        responseBody = String(chunk);
+      }
+    }
+    return originalEnd.call(this, chunk, encoding);
+  };
+  
   res.on("finish", () => {
     const duration = Date.now() - start;
     const timestamp = new Date().toLocaleTimeString();
     let logLine = `${timestamp} [caldav] HTTP/${httpVersion} ${req.method} ${req.path} ${res.statusCode} in ${duration}ms :: user=${username}`;
     
+    // Log request headers (filter out sensitive headers)
+    const headersToLog: Record<string, string | string[]> = {};
+    const sensitiveHeaders = ['authorization', 'cookie', 'x-api-key'];
+    Object.keys(req.headers).forEach(key => {
+      const headerValue = req.headers[key];
+      if (headerValue !== undefined) {
+        if (!sensitiveHeaders.includes(key.toLowerCase())) {
+          headersToLog[key] = headerValue;
+        } else {
+          headersToLog[key] = '[REDACTED]';
+        }
+      }
+    });
+    if (Object.keys(headersToLog).length > 0) {
+      logLine += ` :: headers=${JSON.stringify(headersToLog)}`;
+    }
+    
     // Log request body if present
     if (req.body && typeof req.body === 'string' && req.body.length > 0) {
-      // Truncate very long bodies (e.g., limit to first 500 chars)
-      const bodyPreview = req.body;
-      logLine += ` :: body=${bodyPreview.replace(/\n/g, '\\n')}`;
+      logLine += ` :: reqBody=${req.body.replace(/\n/g, '\\n')}`;
+    }
+    
+    // Log response body if present
+    if (responseBody && responseBody.length > 0) {
+      // Truncate very long response bodies (limit to first 1000 chars)
+      const responsePreview = responseBody.length > 1000 ? responseBody.substring(0, 1000) + '...' : responseBody;
+      logLine += ` :: resBody=${responsePreview.replace(/\n/g, '\\n')}`;
     }
     
     console.log(logLine);
