@@ -105,7 +105,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
     // Log response body if present
     if (responseBody && responseBody.length > 0) {
       // Truncate very long response bodies (limit to first 1000 chars)
-      const responsePreview = responseBody.length > 1000 ? responseBody.substring(0, 1000) + '...' : responseBody;
+      const responsePreview = responseBody;
       logLine += ` :: resBody=${responsePreview.replace(/\n/g, '\\n')}`;
     }
     
@@ -217,6 +217,83 @@ function parseRequestedProperties(body: string): {
   }
   
   return { requested, hasScheduleTag, hasCreatedBy, hasUpdatedBy };
+}
+
+// Parse calendar-multiget query to extract requested hrefs
+function parseMultigetHrefs(body: string): string[] {
+  const hrefs: string[] = [];
+  if (!body) return hrefs;
+  
+  // Look for href elements in the multiget request
+  // Pattern matches: <D:href>...</D:href> or <A:href>...</A:href> etc.
+  const hrefRegex = /<[^:>]*:href[^>]*>([^<]+)<\/[^:>]*:href>/gi;
+  let match;
+  
+  while ((match = hrefRegex.exec(body)) !== null) {
+    const href = match[1].trim();
+    if (href && !href.startsWith('mailto:')) {
+      // Extract relative path (remove base URL if present)
+      const relativeHref = href.replace(/^https?:\/\/[^\/]+/, '');
+      hrefs.push(relativeHref);
+    }
+  }
+  
+  return hrefs;
+}
+
+// Extract DAV namespace prefix from request XML
+// macOS sometimes uses A: instead of D: for DAV namespace
+function extractDavPrefix(body: string): string {
+  if (!body) return 'D'; // Default
+  
+  // Look for DAV namespace declarations: xmlns:D="DAV:" or xmlns:A="DAV:"
+  const davNsMatch = body.match(/xmlns:([^=]+)="DAV:"/i);
+  if (davNsMatch) {
+    return davNsMatch[1];
+  }
+  
+  // Also check actual property usage (e.g., <A:prop>, <A:getetag>)
+  const propMatch = body.match(/<([A-Z]+):prop[^>]*>/i);
+  if (propMatch) {
+    return propMatch[1];
+  }
+  
+  return 'D'; // Default
+}
+
+// Extract namespace prefixes from request XML to match client's namespace usage
+// CRITICAL: Must match the exact prefixes used in the request to avoid RFC violations
+function extractNamespacePrefixes(body: string): { caldavPrefix: string; csPrefix: string } {
+  let caldavPrefix = 'C'; // Default
+  let csPrefix = 'CS'; // Default
+  
+  if (!body) return { caldavPrefix, csPrefix };
+  
+  // Look for namespace declarations in the XML
+  // Pattern: xmlns:C="urn:ietf:params:xml:ns:caldav" or xmlns:CS="http://calendarserver.org/ns/"
+  const caldavNsMatch = body.match(/xmlns:([^=]+)="urn:ietf:params:xml:ns:caldav"/i);
+  if (caldavNsMatch) {
+    caldavPrefix = caldavNsMatch[1];
+  }
+  
+  const csNsMatch = body.match(/xmlns:([^=]+)="http:\/\/calendarserver\.org\/ns\/"/i);
+  if (csNsMatch) {
+    csPrefix = csNsMatch[1];
+  }
+  
+  // Also check actual property usage in the request to detect prefix conflicts
+  // If client uses C: for calendarserver properties, detect it from actual tags
+  if (body.match(/<C:created-by|<C:updated-by/i) && !body.match(/xmlns:C="urn:ietf:params:xml:ns:caldav"/i)) {
+    // Client is using C: for calendarserver properties
+    csPrefix = 'C';
+    // Try to find what prefix they use for CalDAV
+    const altCaldavMatch = body.match(/<([A-Z]+):calendar-data|<([A-Z]+):schedule-tag/i);
+    if (altCaldavMatch) {
+      caldavPrefix = altCaldavMatch[1] || altCaldavMatch[2] || 'C';
+    }
+  }
+  
+  return { caldavPrefix, csPrefix };
 }
 
 // Parse requested properties from PROPFIND request body
@@ -719,6 +796,16 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     const { requested, originalCase } = parsePropfindProperties(body);
     const events = await storage.getEvents({ calendarId, userId: undefined });
     const etag = generateEtag(calendar, events);
+    
+    // CRITICAL: Extract DAV namespace prefix from request (macOS uses A: instead of D:)
+    const davPrefix = extractDavPrefix(body);
+    
+    // CRITICAL: Handle prefer: return=minimal header (RFC 7240)
+    const preferHeader = req.headers.prefer || req.headers['prefer'];
+    if (preferHeader && typeof preferHeader === 'string' && preferHeader.toLowerCase().includes('return=minimal')) {
+      res.setHeader("Preference-Applied", "return=minimal");
+    }
+    
     // CRITICAL: Match the exact path from request (preserve trailing slash)
     const relativeHref = req.path.endsWith('/') ? `/caldav/calendars/${calendarId}/` : `/caldav/calendars/${calendarId}`;
     
@@ -728,9 +815,9 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     }
 
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
-  <D:response>
-    <D:href>${relativeHref}</D:href>`;
+<${davPrefix}:multistatus xmlns:${davPrefix}="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
+  <${davPrefix}:response>
+    <${davPrefix}:href>${relativeHref}</${davPrefix}:href>`;
     
     const supportedProps: string[] = [];
     const unsupportedProps: string[] = [];
@@ -741,8 +828,10 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     if (requested.has('getetag')) {
       supportedProps.push('getetag');
     }
+    // CRITICAL: Collections don't have getcontenttype - move to unsupportedProps
+    // Some servers return 404 for this property on collections
     if (requested.has('getcontenttype')) {
-      supportedProps.push('getcontenttype');
+      unsupportedProps.push('getcontenttype');
     }
     if (requested.has('displayname')) {
       supportedProps.push('displayname');
@@ -776,47 +865,44 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     });
     
     // First propstat: supported properties (200 OK)
-    // Order: DAV properties first (getcontenttype, resourcetype, getetag), then others
+    // Order: DAV properties first (resourcetype, getetag), then others
+    // Note: getcontenttype is NOT included for collections (moved to unsupportedProps)
     if (supportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       // DAV properties (in common order)
-      if (supportedProps.includes('getcontenttype')) {
-        xml += `
-        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>`;
-      }
       if (supportedProps.includes('resourcetype')) {
         xml += `
-        <D:resourcetype>
-          <D:collection/>
+        <${davPrefix}:resourcetype>
+          <${davPrefix}:collection/>
           <C:calendar/>
-        </D:resourcetype>`;
+        </${davPrefix}:resourcetype>`;
       }
       if (supportedProps.includes('getetag')) {
         xml += `
-        <D:getetag>${etag}</D:getetag>`;
+        <${davPrefix}:getetag>${etag}</${davPrefix}:getetag>`;
       }
       if (supportedProps.includes('displayname')) {
         xml += `
-        <D:displayname>${escapeXml(calendar.title)}</D:displayname>`;
+        <${davPrefix}:displayname>${escapeXml(calendar.title)}</${davPrefix}:displayname>`;
       }
       if (supportedProps.includes('sync-token')) {
         xml += `
-        <D:sync-token>urn:uuid:${calendarId}-${etag.replace(/"/g, "")}</D:sync-token>`;
+        <${davPrefix}:sync-token>urn:uuid:${calendarId}-${etag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
       }
       if (supportedProps.includes('current-user-principal')) {
         // CRITICAL: Generate principal path correctly - just replace calendars with principals
         const principalHref = relativeHref.replace('/calendars/', '/principals/');
         xml += `
-        <D:current-user-principal>
-          <D:href>${principalHref}</D:href>
-        </D:current-user-principal>`;
+        <${davPrefix}:current-user-principal>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:current-user-principal>`;
       }
       if (supportedProps.includes('owner')) {
         xml += `
-        <D:owner><D:href>${relativeHref.replace('/calendars/', '/principals/')}${calendarId}/</D:href></D:owner>`;
+        <${davPrefix}:owner><${davPrefix}:href>${relativeHref.replace('/calendars/', '/principals/')}${calendarId}/</${davPrefix}:href></${davPrefix}:owner>`;
       }
       
       // CalDAV properties
@@ -833,7 +919,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       if (supportedProps.includes('calendar-home-set')) {
         xml += `
         <C:calendar-home-set>
-          <D:href>${relativeHref}</D:href>
+          <${davPrefix}:href>${relativeHref}</${davPrefix}:href>
         </C:calendar-home-set>`;
       }
       
@@ -844,30 +930,34 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       }
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     // Second propstat: unsupported properties (404 Not Found)
+    // CRITICAL: Collections don't have getcontenttype - return 404 for it
     if (unsupportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       unsupportedProps.forEach(prop => {
+        // Replace D: prefix in formatUnsupportedProperty output with davPrefix
+        const propXml = formatUnsupportedProperty(prop, originalCase);
+        const propXmlWithPrefix = propXml.replace(/<D:/g, `<${davPrefix}:`).replace(/<\/D:/g, `</${davPrefix}:`);
         xml += `
-        ${formatUnsupportedProperty(prop, originalCase)}`;
+        ${propXmlWithPrefix}`;
       });
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 404 Not Found</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     xml += `
-  </D:response>`;
+  </${davPrefix}:response>`;
 
     if (depth === "1") {
       for (const event of events) {
@@ -875,8 +965,8 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
         const eventRelativeHref = `${relativeHref}event-${event.id}.ics`;
         
         xml += `
-  <D:response>
-    <D:href>${eventRelativeHref}</D:href>`;
+  <${davPrefix}:response>
+    <${davPrefix}:href>${eventRelativeHref}</${davPrefix}:href>`;
         
         const eventSupportedProps: string[] = [];
         const eventUnsupportedProps: string[] = [];
@@ -900,47 +990,49 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
         
         if (eventSupportedProps.length > 0) {
           xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
           
           if (eventSupportedProps.includes('getetag')) {
             xml += `
-        <D:getetag>${eventEtag}</D:getetag>`;
+        <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
           }
           if (eventSupportedProps.includes('getcontenttype')) {
             xml += `
-        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>`;
+        <${davPrefix}:getcontenttype>text/calendar; component=vevent</${davPrefix}:getcontenttype>`;
           }
           
           xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
         }
         
         if (eventUnsupportedProps.length > 0) {
           xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
           
           eventUnsupportedProps.forEach(prop => {
+            const propXml = formatUnsupportedProperty(prop, originalCase);
+            const propXmlWithPrefix = propXml.replace(/<D:/g, `<${davPrefix}:`).replace(/<\/D:/g, `</${davPrefix}:`);
             xml += `
-        ${formatUnsupportedProperty(prop)}`;
+        ${propXmlWithPrefix}`;
           });
           
           xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 404 Not Found</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
         }
         
         xml += `
-  </D:response>`;
+  </${davPrefix}:response>`;
       }
     }
 
     xml += `
-</D:multistatus>`;
+</${davPrefix}:multistatus>`;
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(207).send(xml);
@@ -979,68 +1071,183 @@ END:VCALENDAR</C:calendar-data>
       return;
     }
     
-    const events = await storage.getEvents({ calendarId, userId: undefined });
+    // Check if this is a calendar-multiget query
+    const isMultiget = bodyLower.includes('calendar-multiget') || bodyLower.includes('multiget');
     const { requested, hasScheduleTag, hasCreatedBy, hasUpdatedBy } = parseRequestedProperties(body);
     const hasUnsupportedProps = hasScheduleTag || hasCreatedBy || hasUpdatedBy;
-
+    
+    // Extract namespace prefixes from request to match client's usage
+    const { caldavPrefix, csPrefix } = extractNamespacePrefixes(body);
+    
+    // CRITICAL: Always include getetag when requested (required for caching)
+    const mustIncludeGetetag = requested.has('getetag');
+    
+    // Build namespace declarations - handle prefix conflicts
+    // If client uses same prefix for both namespaces, we need to use different ones in response
+    let namespaceDecls = `xmlns:D="${DAV_NS}"`;
+    let caldavPropPrefix = caldavPrefix;
+    let csPropPrefix = csPrefix;
+    
+    if (caldavPrefix === csPrefix && caldavPrefix === 'C') {
+      // Client uses C: for calendarserver - use C: for CalDAV, CS: for CalendarServer
+      namespaceDecls += ` xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}"`;
+      caldavPropPrefix = 'C';
+      csPropPrefix = 'CS';
+    } else {
+      // Use the prefixes the client specified
+      namespaceDecls += ` xmlns:${caldavPrefix}="${CALDAV_NS}"`;
+      if (csPrefix !== caldavPrefix) {
+        namespaceDecls += ` xmlns:${csPrefix}="${CS_NS}"`;
+      } else {
+        // Same prefix conflict - use CS: for CalendarServer
+        namespaceDecls += ` xmlns:CS="${CS_NS}"`;
+        csPropPrefix = 'CS';
+      }
+    }
+    
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">`;
+<D:multistatus ${namespaceDecls}>`;
 
-    for (const event of events) {
-      const eventIcs = generateEventICS(event, calendarId);
-      const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
-      const relativeHref = `/caldav/calendars/${calendarId}/event-${event.id}.ics`;
+    if (isMultiget) {
+      // Calendar-multiget: return responses for ALL requested hrefs
+      const requestedHrefs = parseMultigetHrefs(body);
+      const events = await storage.getEvents({ calendarId, userId: undefined });
       
-      xml += `
+      // Create a map of event ID -> event for quick lookup
+      const eventMap = new Map<number, Event>();
+      events.forEach(event => {
+        eventMap.set(event.id, event);
+      });
+      
+      // Process each requested href
+      for (const requestedHref of requestedHrefs) {
+        // Extract event ID from href (e.g., /caldav/calendars/1/event-2.ics -> 2)
+        const eventIdMatch = requestedHref.match(/event-(\d+)\.ics$/);
+        const eventId = eventIdMatch ? Number(eventIdMatch[1]) : null;
+        
+        xml += `
   <D:response>
-    <D:href>${relativeHref}</D:href>`;
-      
-      // First propstat: supported properties (200 OK)
-      xml += `
+    <D:href>${requestedHref}</D:href>`;
+        
+        if (eventId && eventMap.has(eventId)) {
+          // Event exists - return 200 OK with properties
+          const event = eventMap.get(eventId)!;
+          const eventIcs = generateEventICS(event, calendarId);
+          const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+          
+          xml += `
     <D:propstat>
       <D:prop>`;
-      
-      if (requested.has('getetag')) {
-        xml += `
+          
+          // CRITICAL: Always include getetag when requested
+          if (mustIncludeGetetag || requested.has('getetag')) {
+            xml += `
         <D:getetag>${eventEtag}</D:getetag>`;
-      }
-      if (requested.has('calendar-data')) {
-        xml += `
-        <C:calendar-data><![CDATA[${eventIcs}]]></C:calendar-data>`;
-      }
-      
-      xml += `
+          }
+          if (requested.has('calendar-data')) {
+            xml += `
+        <${caldavPropPrefix}:calendar-data><![CDATA[${eventIcs}]]></${caldavPropPrefix}:calendar-data>`;
+          }
+          
+          xml += `
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>`;
+          
+          // Unsupported properties (404 Not Found) - use same namespace prefixes as request
+          if (hasUnsupportedProps) {
+            xml += `
+    <D:propstat>
+      <D:prop>`;
+            
+            if (hasScheduleTag) {
+              xml += `
+        <${caldavPropPrefix}:schedule-tag />`;
+            }
+            if (hasCreatedBy) {
+              xml += `
+        <${csPropPrefix}:created-by />`;
+            }
+            if (hasUpdatedBy) {
+              xml += `
+        <${csPropPrefix}:updated-by />`;
+            }
+            
+            xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>`;
+          }
+        } else {
+          // Event doesn't exist - return 404 Not Found
+          xml += `
+    <D:status>HTTP/1.1 404 Not Found</D:status>`;
+        }
+        
+        xml += `
+  </D:response>`;
+      }
+    } else {
+      // Regular calendar-query: return all events
+      const events = await storage.getEvents({ calendarId, userId: undefined });
       
-      // Second propstat: unsupported properties (404 Not Found)
-      if (hasUnsupportedProps) {
+      for (const event of events) {
+        const eventIcs = generateEventICS(event, calendarId);
+        const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+        const relativeHref = `/caldav/calendars/${calendarId}/event-${event.id}.ics`;
+        
+        xml += `
+  <D:response>
+    <D:href>${relativeHref}</D:href>`;
+        
+        // First propstat: supported properties (200 OK)
         xml += `
     <D:propstat>
       <D:prop>`;
         
-        if (hasScheduleTag) {
+        // CRITICAL: Always include getetag when requested
+        if (mustIncludeGetetag || requested.has('getetag')) {
           xml += `
-        <C:schedule-tag />`;
+        <D:getetag>${eventEtag}</D:getetag>`;
         }
-        if (hasCreatedBy) {
+        if (requested.has('calendar-data')) {
           xml += `
-        <CS:created-by />`;
-        }
-        if (hasUpdatedBy) {
-          xml += `
-        <CS:updated-by />`;
+        <${caldavPropPrefix}:calendar-data><![CDATA[${eventIcs}]]></${caldavPropPrefix}:calendar-data>`;
         }
         
         xml += `
       </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>`;
+        
+        // Second propstat: unsupported properties (404 Not Found) - use same namespace prefixes
+        if (hasUnsupportedProps) {
+          xml += `
+    <D:propstat>
+      <D:prop>`;
+          
+          if (hasScheduleTag) {
+            xml += `
+        <${caldavPropPrefix}:schedule-tag />`;
+          }
+          if (hasCreatedBy) {
+            xml += `
+        <${csPropPrefix}:created-by />`;
+          }
+          if (hasUpdatedBy) {
+            xml += `
+        <${csPropPrefix}:updated-by />`;
+          }
+          
+          xml += `
+      </D:prop>
       <D:status>HTTP/1.1 404 Not Found</D:status>
     </D:propstat>`;
-      }
-      
-      xml += `
+        }
+        
+        xml += `
   </D:response>`;
+      }
     }
 
     xml += `
