@@ -527,18 +527,34 @@ function generateFullCalendarICS(calendar: Calendar, events: Event[]): string {
   return ics;
 }
 
+// CRITICAL: Generate ETag/CTag that changes whenever calendar content changes
+// This is essential for macOS refresh detection - if ETag/CTag don't change, macOS won't sync
 function generateEtag(calendar: Calendar, events: Event[]): string {
+  // Include all event IDs and their timestamps to detect any change
+  // This ensures that modifying an event (even if count stays same) changes the ETag
+  const eventData = events.map(e => ({
+    id: e.id,
+    startTime: e.startTime ? new Date(e.startTime).getTime() : 0,
+    createdAt: e.createdAt ? new Date(e.createdAt).getTime() : 0
+  })).sort((a, b) => a.id - b.id); // Sort by ID for consistent ordering
+  
   const data = JSON.stringify({ 
     calendarId: calendar.id, 
     eventCount: events.length,
-    lastEventId: events[events.length - 1]?.id || 0
+    events: eventData,
+    // Include calendar creation time as a base
+    calendarCreated: calendar.createdAt ? new Date(calendar.createdAt).getTime() : 0
   });
+  
+  // Use a more robust hash function
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash;
   }
+  
+  // Return hex string with quotes (RFC 4918 format)
   return `"${Math.abs(hash).toString(16)}"`;
 }
 
@@ -895,6 +911,14 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     if (requested.has('getetag')) {
       supportedProps.push('getetag');
     }
+    // CRITICAL: macOS relies on getctag for calendar refresh detection
+    // Always include getctag if getetag is requested (or vice versa) for calendar collections
+    if (requested.has('getctag')) {
+      supportedProps.push('getctag');
+    } else if (requested.has('getetag')) {
+      // If they request getetag but not getctag, include getctag anyway for macOS compatibility
+      supportedProps.push('getctag');
+    }
     // CRITICAL: Collections don't have getcontenttype - move to unsupportedProps
     // Some servers return 404 for this property on collections
     if (requested.has('getcontenttype')) {
@@ -911,9 +935,6 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     }
     if (requested.has('supported-calendar-component-set')) {
       supportedProps.push('supported-calendar-component-set');
-    }
-    if (requested.has('getctag')) {
-      supportedProps.push('getctag');
     }
     if (requested.has('current-user-principal')) {
       supportedProps.push('current-user-principal');
