@@ -7,6 +7,10 @@ const router = Router();
 // Parse raw XML/text body for CalDAV requests
 router.use(text({ type: ["application/xml", "text/xml", "text/plain", "*/*"] }));
 
+// WebDAV namespace constants
+// IMPORTANT: When using C: prefix in XML responses, it MUST always be mapped to CALDAV_NS
+// When using CS: prefix, it MUST always be mapped to CS_NS
+// All multistatus elements that use C: or CS: prefixes must declare these namespaces
 const DAV_NS = "DAV:";
 const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
 const CS_NS = "http://calendarserver.org/ns/";
@@ -158,6 +162,67 @@ function parseRequestedProperties(body: string): {
   return { requested, hasScheduleTag, hasCreatedBy, hasUpdatedBy };
 }
 
+// Parse requested properties from PROPFIND request body
+function parsePropfindProperties(body: string): Set<string> {
+  const requested = new Set<string>();
+  
+  if (!body) {
+    // If no body, return empty set (client didn't request anything specific)
+    return requested;
+  }
+  
+  // Look for <prop> section in the XML body
+  const propMatch = body.match(/<[^:]*:prop[^>]*>([\s\S]*?)<\/[^:]*:prop>/i);
+  if (!propMatch) {
+    // If no <prop> found, return empty set
+    return requested;
+  }
+  
+  const propContent = propMatch[1];
+  const bodyLower = propContent.toLowerCase();
+  
+  // Check for common DAV properties
+  if (bodyLower.match(/<[^:]*:resourcetype[^>]*\/?>/i) || bodyLower.includes('resourcetype')) {
+    requested.add('resourcetype');
+  }
+  if (bodyLower.match(/<[^:]*:getetag[^>]*\/?>/i) || bodyLower.includes('getetag')) {
+    requested.add('getetag');
+  }
+  if (bodyLower.match(/<[^:]*:getcontenttype[^>]*\/?>/i) || bodyLower.includes('getcontenttype')) {
+    requested.add('getcontenttype');
+  }
+  if (bodyLower.match(/<[^:]*:displayname[^>]*\/?>/i) || bodyLower.includes('displayname')) {
+    requested.add('displayname');
+  }
+  if (bodyLower.match(/<[^:]*:current-user-principal[^>]*\/?>/i) || bodyLower.includes('current-user-principal')) {
+    requested.add('current-user-principal');
+  }
+  if (bodyLower.match(/<[^:]*:owner[^>]*\/?>/i) || bodyLower.includes('owner')) {
+    requested.add('owner');
+  }
+  if (bodyLower.match(/<[^:]*:sync-token[^>]*\/?>/i) || bodyLower.includes('sync-token')) {
+    requested.add('sync-token');
+  }
+  
+  // Check for CalDAV properties
+  if (bodyLower.match(/<[^:]*:calendar-home-set[^>]*\/?>/i) || bodyLower.includes('calendar-home-set')) {
+    requested.add('calendar-home-set');
+  }
+  if (bodyLower.match(/<[^:]*:calendar-description[^>]*\/?>/i) || bodyLower.includes('calendar-description')) {
+    requested.add('calendar-description');
+  }
+  if (bodyLower.match(/<[^:]*:supported-calendar-component-set[^>]*\/?>/i) || bodyLower.includes('supported-calendar-component-set')) {
+    requested.add('supported-calendar-component-set');
+  }
+  
+  // Check for CalendarServer properties
+  if (bodyLower.match(/<[^:]*:getctag[^>]*\/?>/i) || bodyLower.includes('getctag')) {
+    requested.add('getctag');
+  }
+  
+  return requested;
+}
+
 function formatICSDate(date: Date): string {
   const d = new Date(date);
   const year = d.getUTCFullYear();
@@ -268,23 +333,115 @@ router.all("/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => 
   const baseUrl = `${req.protocol}://${req.get("host")}`;
 
   if (method === "PROPFIND") {
-    const xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}">
+    const body = typeof req.body === 'string' ? req.body : '';
+    const requested = parsePropfindProperties(body);
+    const relativeHref = `/caldav/`;
+    
+    let xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
   <D:response>
-    <D:href>${baseUrl}/caldav/</D:href>
+    <D:href>${relativeHref}</D:href>`;
+    
+    // Build propstat for requested properties
+    const supportedProps: string[] = [];
+    const unsupportedProps: string[] = [];
+    
+    // If no properties requested, return empty response or default to resourcetype
+    if (requested.size === 0) {
+      requested.add('resourcetype');
+    }
+    
+    if (requested.has('resourcetype')) {
+      supportedProps.push('resourcetype');
+    }
+    if (requested.has('current-user-principal')) {
+      supportedProps.push('current-user-principal');
+    }
+    if (requested.has('calendar-home-set')) {
+      supportedProps.push('calendar-home-set');
+    }
+    if (requested.has('owner')) {
+      supportedProps.push('owner');
+    }
+    
+    // Add unsupported properties to 404 list
+    requested.forEach(prop => {
+      if (!supportedProps.includes(prop) && prop !== 'resourcetype') {
+        unsupportedProps.push(prop);
+      }
+    });
+    
+    // First propstat: supported properties (200 OK)
+    if (supportedProps.length > 0) {
+      xml += `
     <D:propstat>
-      <D:prop>
-        <D:resourcetype><D:collection/></D:resourcetype>
+      <D:prop>`;
+      
+      if (supportedProps.includes('resourcetype')) {
+        xml += `
+        <D:resourcetype><D:collection/></D:resourcetype>`;
+      }
+      if (supportedProps.includes('current-user-principal')) {
+        xml += `
         <D:current-user-principal>
-          <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
-        </D:current-user-principal>
+          <D:href>${relativeHref}principals/${calendarId}/</D:href>
+        </D:current-user-principal>`;
+      }
+      if (supportedProps.includes('calendar-home-set')) {
+        xml += `
         <C:calendar-home-set>
-          <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
-        </C:calendar-home-set>
-        <D:owner><D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href></D:owner>
+          <D:href>${relativeHref}calendars/${calendarId}/</D:href>
+        </C:calendar-home-set>`;
+      }
+      if (supportedProps.includes('owner')) {
+        xml += `
+        <D:owner><D:href>${relativeHref}principals/${calendarId}/</D:href></D:owner>`;
+      }
+      
+      xml += `
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
+    </D:propstat>`;
+    }
+    
+    // Second propstat: unsupported properties (404 Not Found)
+    if (unsupportedProps.length > 0) {
+      xml += `
+    <D:propstat>
+      <D:prop>`;
+      
+      unsupportedProps.forEach(prop => {
+        if (prop === 'getetag') {
+          xml += `
+        <D:getetag />`;
+        } else if (prop === 'getcontenttype') {
+          xml += `
+        <D:getcontenttype />`;
+        } else if (prop === 'displayname') {
+          xml += `
+        <D:displayname />`;
+        } else if (prop === 'sync-token') {
+          xml += `
+        <D:sync-token />`;
+        } else if (prop === 'calendar-description') {
+          xml += `
+        <C:calendar-description />`;
+        } else if (prop === 'supported-calendar-component-set') {
+          xml += `
+        <C:supported-calendar-component-set />`;
+        } else if (prop === 'getctag') {
+          xml += `
+        <CS:getctag />`;
+        }
+      });
+      
+      xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>`;
+    }
+    
+    xml += `
   </D:response>
 </D:multistatus>`;
 
@@ -326,24 +483,115 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
   const baseUrl = `${req.protocol}://${req.get("host")}`;
 
   if (method === "PROPFIND") {
-    const xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}">
+    const body = typeof req.body === 'string' ? req.body : '';
+    const requested = parsePropfindProperties(body);
+    const relativeHref = `/caldav/principals/`;
+    
+    // If no properties requested, default to resourcetype
+    if (requested.size === 0) {
+      requested.add('resourcetype');
+    }
+    
+    let xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
   <D:response>
-    <D:href>${baseUrl}/caldav/principals/</D:href>
+    <D:href>${relativeHref}</D:href>`;
+    
+    const supportedProps: string[] = [];
+    const unsupportedProps: string[] = [];
+    
+    if (requested.has('resourcetype')) {
+      supportedProps.push('resourcetype');
+    }
+    if (requested.has('displayname')) {
+      supportedProps.push('displayname');
+    }
+    if (requested.has('calendar-home-set')) {
+      supportedProps.push('calendar-home-set');
+    }
+    if (requested.has('current-user-principal')) {
+      supportedProps.push('current-user-principal');
+    }
+    if (requested.has('owner')) {
+      supportedProps.push('owner');
+    }
+    
+    requested.forEach(prop => {
+      if (!supportedProps.includes(prop)) {
+        unsupportedProps.push(prop);
+      }
+    });
+    
+    if (supportedProps.length > 0) {
+      xml += `
     <D:propstat>
-      <D:prop>
-        <D:resourcetype><D:collection/></D:resourcetype>
-        <D:displayname>Calendar User</D:displayname>
+      <D:prop>`;
+      
+      if (supportedProps.includes('resourcetype')) {
+        xml += `
+        <D:resourcetype><D:collection/></D:resourcetype>`;
+      }
+      if (supportedProps.includes('displayname')) {
+        xml += `
+        <D:displayname>Calendar User</D:displayname>`;
+      }
+      if (supportedProps.includes('calendar-home-set')) {
+        xml += `
         <C:calendar-home-set>
-          <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
-        </C:calendar-home-set>
+          <D:href>${relativeHref.replace('/principals/', '/calendars/')}${calendarId}/</D:href>
+        </C:calendar-home-set>`;
+      }
+      if (supportedProps.includes('current-user-principal')) {
+        xml += `
         <D:current-user-principal>
-          <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
-        </D:current-user-principal>
-        <D:owner><D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href></D:owner>
+          <D:href>${relativeHref}${calendarId}/</D:href>
+        </D:current-user-principal>`;
+      }
+      if (supportedProps.includes('owner')) {
+        xml += `
+        <D:owner><D:href>${relativeHref}${calendarId}/</D:href></D:owner>`;
+      }
+      
+      xml += `
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
+    </D:propstat>`;
+    }
+    
+    if (unsupportedProps.length > 0) {
+      xml += `
+    <D:propstat>
+      <D:prop>`;
+      
+      unsupportedProps.forEach(prop => {
+        if (prop === 'getetag') {
+          xml += `
+        <D:getetag />`;
+        } else if (prop === 'getcontenttype') {
+          xml += `
+        <D:getcontenttype />`;
+        } else if (prop === 'sync-token') {
+          xml += `
+        <D:sync-token />`;
+        } else if (prop === 'calendar-description') {
+          xml += `
+        <C:calendar-description />`;
+        } else if (prop === 'supported-calendar-component-set') {
+          xml += `
+        <C:supported-calendar-component-set />`;
+        } else if (prop === 'getctag') {
+          xml += `
+        <CS:getctag />`;
+        }
+      });
+      
+      xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>`;
+    }
+    
+    xml += `
   </D:response>
 </D:multistatus>`;
 
@@ -397,51 +645,240 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
   const baseUrl = `${req.protocol}://${req.get("host")}`;
 
   if (method === "PROPFIND") {
+    const body = typeof req.body === 'string' ? req.body : '';
+    const requested = parsePropfindProperties(body);
     const events = await storage.getEvents({ calendarId, userId: undefined });
     const etag = generateEtag(calendar, events);
+    const relativeHref = `/caldav/calendars/${calendarId}/`;
+    
+    // If no properties requested, default to resourcetype
+    if (requested.size === 0) {
+      requested.add('resourcetype');
+    }
 
     let xml = `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
   <D:response>
-    <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
+    <D:href>${relativeHref}</D:href>`;
+    
+    const supportedProps: string[] = [];
+    const unsupportedProps: string[] = [];
+    
+    if (requested.has('resourcetype')) {
+      supportedProps.push('resourcetype');
+    }
+    if (requested.has('getetag')) {
+      supportedProps.push('getetag');
+    }
+    if (requested.has('getcontenttype')) {
+      supportedProps.push('getcontenttype');
+    }
+    if (requested.has('displayname')) {
+      supportedProps.push('displayname');
+    }
+    if (requested.has('sync-token')) {
+      supportedProps.push('sync-token');
+    }
+    if (requested.has('calendar-description')) {
+      supportedProps.push('calendar-description');
+    }
+    if (requested.has('supported-calendar-component-set')) {
+      supportedProps.push('supported-calendar-component-set');
+    }
+    if (requested.has('getctag')) {
+      supportedProps.push('getctag');
+    }
+    if (requested.has('current-user-principal')) {
+      supportedProps.push('current-user-principal');
+    }
+    if (requested.has('owner')) {
+      supportedProps.push('owner');
+    }
+    if (requested.has('calendar-home-set')) {
+      supportedProps.push('calendar-home-set');
+    }
+    
+    requested.forEach(prop => {
+      if (!supportedProps.includes(prop)) {
+        unsupportedProps.push(prop);
+      }
+    });
+    
+    // First propstat: supported properties (200 OK)
+    // Order: DAV properties first (getcontenttype, resourcetype, getetag), then others
+    if (supportedProps.length > 0) {
+      xml += `
     <D:propstat>
-      <D:prop>
-        <D:resourcetype><D:collection/></D:resourcetype>
-        <D:resourcetype><C:calendar/></D:resourcetype>
-        <D:displayname>${escapeXml(calendar.title)}</D:displayname>
-        <D:getetag>${etag}</D:getetag>
-        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      <D:prop>`;
+      
+      // DAV properties (in common order)
+      if (supportedProps.includes('getcontenttype')) {
+        xml += `
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>`;
+      }
+      if (supportedProps.includes('resourcetype')) {
+        xml += `
+        <D:resourcetype>
+          <D:collection/>
+          <C:calendar/>
+        </D:resourcetype>`;
+      }
+      if (supportedProps.includes('getetag')) {
+        xml += `
+        <D:getetag>${etag}</D:getetag>`;
+      }
+      if (supportedProps.includes('displayname')) {
+        xml += `
+        <D:displayname>${escapeXml(calendar.title)}</D:displayname>`;
+      }
+      if (supportedProps.includes('sync-token')) {
+        xml += `
+        <D:sync-token>urn:uuid:${calendarId}-${etag.replace(/"/g, "")}</D:sync-token>`;
+      }
+      if (supportedProps.includes('current-user-principal')) {
+        xml += `
+        <D:current-user-principal>
+          <D:href>${relativeHref.replace('/calendars/', '/principals/')}${calendarId}/</D:href>
+        </D:current-user-principal>`;
+      }
+      if (supportedProps.includes('owner')) {
+        xml += `
+        <D:owner><D:href>${relativeHref.replace('/calendars/', '/principals/')}${calendarId}/</D:href></D:owner>`;
+      }
+      
+      // CalDAV properties
+      if (supportedProps.includes('calendar-description')) {
+        xml += `
+        <C:calendar-description>${escapeXml(calendar.description || " ")}</C:calendar-description>`;
+      }
+      if (supportedProps.includes('supported-calendar-component-set')) {
+        xml += `
         <C:supported-calendar-component-set>
           <C:comp name="VEVENT"/>
-        </C:supported-calendar-component-set>
-        <C:calendar-description>${escapeXml(calendar.description || " ")}</C:calendar-description>
-        <CS:getctag>${etag}</CS:getctag>
-        <D:sync-token>urn:uuid:${calendarId}-${etag.replace(/"/g, "")}</D:sync-token>
-        <D:current-user-principal>
-          <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
-        </D:current-user-principal>
-        <D:owner><D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href></D:owner>
+        </C:supported-calendar-component-set>`;
+      }
+      if (supportedProps.includes('calendar-home-set')) {
+        xml += `
         <C:calendar-home-set>
-          <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
-        </C:calendar-home-set>
+          <D:href>${relativeHref}</D:href>
+        </C:calendar-home-set>`;
+      }
+      
+      // CalendarServer properties
+      if (supportedProps.includes('getctag')) {
+        xml += `
+        <CS:getctag>${etag}</CS:getctag>`;
+      }
+      
+      xml += `
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
+    </D:propstat>`;
+    }
+    
+    // Second propstat: unsupported properties (404 Not Found)
+    if (unsupportedProps.length > 0) {
+      xml += `
+    <D:propstat>
+      <D:prop>`;
+      
+      unsupportedProps.forEach(prop => {
+        // Handle properties with proper namespaces
+        if (prop.startsWith('calendar-') || prop === 'supported-calendar-component-set') {
+          xml += `
+        <C:${prop} />`;
+        } else if (prop === 'getctag') {
+          xml += `
+        <CS:getctag />`;
+        } else {
+          xml += `
+        <D:${prop} />`;
+        }
+      });
+      
+      xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>`;
+    }
+    
+    xml += `
   </D:response>`;
 
     if (depth === "1") {
       for (const event of events) {
         const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+        const eventRelativeHref = `${relativeHref}event-${event.id}.ics`;
+        
         xml += `
   <D:response>
-    <D:href>${baseUrl}/caldav/calendars/${calendarId}/event-${event.id}.ics</D:href>
+    <D:href>${eventRelativeHref}</D:href>`;
+        
+        const eventSupportedProps: string[] = [];
+        const eventUnsupportedProps: string[] = [];
+        
+        if (requested.has('getetag')) {
+          eventSupportedProps.push('getetag');
+        }
+        if (requested.has('getcontenttype')) {
+          eventSupportedProps.push('getcontenttype');
+        }
+        
+        requested.forEach(prop => {
+          if (!eventSupportedProps.includes(prop) && prop !== 'resourcetype' && prop !== 'displayname' && 
+              prop !== 'sync-token' && prop !== 'calendar-description' && prop !== 'supported-calendar-component-set' &&
+              prop !== 'getctag' && prop !== 'current-user-principal' && prop !== 'owner' && prop !== 'calendar-home-set') {
+            if (!eventUnsupportedProps.includes(prop)) {
+              eventUnsupportedProps.push(prop);
+            }
+          }
+        });
+        
+        if (eventSupportedProps.length > 0) {
+          xml += `
     <D:propstat>
-      <D:prop>
-        <D:getetag>${eventEtag}</D:getetag>
-        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      <D:prop>`;
+          
+          if (eventSupportedProps.includes('getetag')) {
+            xml += `
+        <D:getetag>${eventEtag}</D:getetag>`;
+          }
+          if (eventSupportedProps.includes('getcontenttype')) {
+            xml += `
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>`;
+          }
+          
+          xml += `
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
+    </D:propstat>`;
+        }
+        
+        if (eventUnsupportedProps.length > 0) {
+          xml += `
+    <D:propstat>
+      <D:prop>`;
+          
+          eventUnsupportedProps.forEach(prop => {
+            if (prop.startsWith('calendar-') || prop === 'supported-calendar-component-set') {
+              xml += `
+        <C:${prop} />`;
+            } else if (prop === 'getctag') {
+              xml += `
+        <CS:getctag />`;
+            } else {
+              xml += `
+        <D:${prop} />`;
+            }
+          });
+          
+          xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>`;
+        }
+        
+        xml += `
   </D:response>`;
       }
     }
@@ -616,24 +1053,106 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
   }
 
   if (method === "PROPFIND") {
-    const xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}">
+    const body = typeof req.body === 'string' ? req.body : '';
+    const requested = parsePropfindProperties(body);
+    const relativeHref = `/caldav/principals/${calendarId}/`;
+    
+    // If no properties requested, default to resourcetype
+    if (requested.size === 0) {
+      requested.add('resourcetype');
+    }
+    
+    let xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
   <D:response>
-    <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
+    <D:href>${relativeHref}</D:href>`;
+    
+    const supportedProps: string[] = [];
+    const unsupportedProps: string[] = [];
+    
+    if (requested.has('resourcetype')) {
+      supportedProps.push('resourcetype');
+    }
+    if (requested.has('displayname')) {
+      supportedProps.push('displayname');
+    }
+    if (requested.has('calendar-home-set')) {
+      supportedProps.push('calendar-home-set');
+    }
+    if (requested.has('current-user-principal')) {
+      supportedProps.push('current-user-principal');
+    }
+    if (requested.has('owner')) {
+      supportedProps.push('owner');
+    }
+    
+    requested.forEach(prop => {
+      if (!supportedProps.includes(prop)) {
+        unsupportedProps.push(prop);
+      }
+    });
+    
+    if (supportedProps.length > 0) {
+      xml += `
     <D:propstat>
-      <D:prop>
-        <D:resourcetype><D:principal/></D:resourcetype>
-        <D:displayname>Calendar User</D:displayname>
+      <D:prop>`;
+      
+      if (supportedProps.includes('resourcetype')) {
+        xml += `
+        <D:resourcetype><D:principal/></D:resourcetype>`;
+      }
+      if (supportedProps.includes('displayname')) {
+        xml += `
+        <D:displayname>Calendar User</D:displayname>`;
+      }
+      if (supportedProps.includes('calendar-home-set')) {
+        xml += `
         <C:calendar-home-set>
-          <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
-        </C:calendar-home-set>
+          <D:href>${relativeHref.replace('/principals/', '/calendars/')}${calendarId}/</D:href>
+        </C:calendar-home-set>`;
+      }
+      if (supportedProps.includes('current-user-principal')) {
+        xml += `
         <D:current-user-principal>
-          <D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href>
-        </D:current-user-principal>
-        <D:owner><D:href>${baseUrl}/caldav/principals/${calendarId}/</D:href></D:owner>
+          <D:href>${relativeHref}</D:href>
+        </D:current-user-principal>`;
+      }
+      if (supportedProps.includes('owner')) {
+        xml += `
+        <D:owner><D:href>${relativeHref}</D:href></D:owner>`;
+      }
+      
+      xml += `
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
+    </D:propstat>`;
+    }
+    
+    if (unsupportedProps.length > 0) {
+      xml += `
+    <D:propstat>
+      <D:prop>`;
+      
+      unsupportedProps.forEach(prop => {
+        if (prop.startsWith('calendar-') || prop === 'supported-calendar-component-set') {
+          xml += `
+        <C:${prop} />`;
+        } else if (prop === 'getctag') {
+          xml += `
+        <CS:getctag />`;
+        } else {
+          xml += `
+        <D:${prop} />`;
+        }
+      });
+      
+      xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>`;
+    }
+    
+    xml += `
   </D:response>
 </D:multistatus>`;
 
