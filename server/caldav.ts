@@ -39,7 +39,16 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     const timestamp = new Date().toLocaleTimeString();
-    console.log(`${timestamp} [caldav] HTTP/${httpVersion} ${req.method} ${req.path} ${res.statusCode} in ${duration}ms :: user=${username}`);
+    let logLine = `${timestamp} [caldav] HTTP/${httpVersion} ${req.method} ${req.path} ${res.statusCode} in ${duration}ms :: user=${username}`;
+    
+    // Log request body if present
+    if (req.body && typeof req.body === 'string' && req.body.length > 0) {
+      // Truncate very long bodies (e.g., limit to first 500 chars)
+      const bodyPreview = req.body.length > 500 ? req.body.substring(0, 500) + '...' : req.body;
+      logLine += ` :: body=${bodyPreview.replace(/\n/g, '\\n')}`;
+    }
+    
+    console.log(logLine);
   });
   
   next();
