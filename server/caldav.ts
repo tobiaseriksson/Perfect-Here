@@ -78,7 +78,11 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     const timestamp = new Date().toLocaleTimeString();
-    let logLine = `${timestamp} [caldav] HTTP/${httpVersion} ${req.method} ${req.path} ${res.statusCode} in ${duration}ms :: user=${username}`;
+    // Use full path including mount point (req.baseUrl + req.path)
+    // req.baseUrl is "/caldav" when router is mounted at /caldav
+    // req.path is relative to mount point (e.g., "/principals/1/")
+    const fullPath = req.baseUrl + req.path;
+    let logLine = `${timestamp} [caldav] HTTP/${httpVersion} ${req.method} ${fullPath} ${res.statusCode} in ${duration}ms :: user=${username}`;
     
     // Log request headers (filter out sensitive headers)
     const headersToLog: Record<string, string | string[]> = {};
@@ -294,6 +298,47 @@ function extractNamespacePrefixes(body: string): { caldavPrefix: string; csPrefi
   }
   
   return { caldavPrefix, csPrefix };
+}
+
+// Parse properties being set in PROPPATCH request body
+// Returns: { properties: Array<{name: string, namespace: string, prefix: string, value: string}> }
+function parseProppatchProperties(body: string): { properties: Array<{name: string, namespace: string, prefix: string, value: string}> } {
+  const properties: Array<{name: string, namespace: string, prefix: string, value: string}> = [];
+  
+  if (!body) return { properties };
+  
+  // PROPPATCH structure: <D:propertyupdate><D:set><D:prop><property>value</property></D:prop></D:set></D:propertyupdate>
+  // Extract all properties from <D:set><D:prop>...</D:prop></D:set> blocks
+  const setMatch = body.match(/<[^:>]*:set[^>]*>([\s\S]*?)<\/[^:>]*:set>/i);
+  if (!setMatch) return { properties };
+  
+  const propMatch = setMatch[1].match(/<[^:>]*:prop[^>]*>([\s\S]*?)<\/[^:>]*:prop>/i);
+  if (!propMatch) return { properties };
+  
+  const propContent = propMatch[1];
+  
+  // Extract namespace declarations to map prefixes to URIs
+  const namespaceMap: Record<string, string> = {};
+  const nsRegex = /xmlns:([^=]+)="([^"]+)"/g;
+  let nsMatch;
+  while ((nsMatch = nsRegex.exec(body)) !== null) {
+    namespaceMap[nsMatch[1]] = nsMatch[2];
+  }
+  
+  // Extract all property elements with their prefixes
+  // Pattern: <prefix:property>value</prefix:property> or <prefix:property/>
+  const propertyRegex = /<([^:>]+):([a-zA-Z0-9-]+)[^>]*(?:\/>|>([\s\S]*?)<\/\1:\2>)/g;
+  let match;
+  while ((match = propertyRegex.exec(propContent)) !== null) {
+    const prefix = match[1];
+    const name = match[2];
+    const value = match[3] || '';
+    const namespace = namespaceMap[prefix] || '';
+    
+    properties.push({ name, namespace, prefix, value });
+  }
+  
+  return { properties };
 }
 
 // Parse requested properties from PROPFIND request body
@@ -517,13 +562,20 @@ router.all("/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => 
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
     const { requested, originalCase } = parsePropfindProperties(body);
+    // CRITICAL: Extract DAV namespace prefix from request (macOS uses A: instead of D:)
+    const davPrefix = extractDavPrefix(body);
     // CRITICAL: Match the exact path from request (preserve trailing slash)
     const relativeHref = req.path.endsWith('/') ? `/caldav/` : `/caldav`;
     
+    // CRITICAL: Principal URL must match exactly what's configured in routing
+    // We have routes for /principals/:id and /principals/:id/:subId
+    // Use the simple /principals/:id/ format for consistency
+    const principalHref = `/caldav/principals/${calendarId}/`;
+    
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
-  <D:response>
-    <D:href>${relativeHref}</D:href>`;
+<${davPrefix}:multistatus xmlns:${davPrefix}="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
+  <${davPrefix}:response>
+    <${davPrefix}:href>${relativeHref}</${davPrefix}:href>`;
     
     // Build propstat for requested properties
     const supportedProps: string[] = [];
@@ -557,56 +609,59 @@ router.all("/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => 
     // First propstat: supported properties (200 OK)
     if (supportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       if (supportedProps.includes('resourcetype')) {
         xml += `
-        <D:resourcetype><D:collection/></D:resourcetype>`;
+        <${davPrefix}:resourcetype><${davPrefix}:collection/></${davPrefix}:resourcetype>`;
       }
       if (supportedProps.includes('current-user-principal')) {
+        // CRITICAL: Use consistent principal URL that matches routing
         xml += `
-        <D:current-user-principal>
-          <D:href>${relativeHref}principals/${calendarId}/</D:href>
-        </D:current-user-principal>`;
+        <${davPrefix}:current-user-principal>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:current-user-principal>`;
       }
       if (supportedProps.includes('calendar-home-set')) {
         xml += `
         <C:calendar-home-set>
-          <D:href>${relativeHref}calendars/${calendarId}/</D:href>
+          <${davPrefix}:href>${relativeHref}calendars/${calendarId}/</${davPrefix}:href>
         </C:calendar-home-set>`;
       }
       if (supportedProps.includes('owner')) {
         xml += `
-        <D:owner><D:href>${relativeHref}principals/${calendarId}/</D:href></D:owner>`;
+        <${davPrefix}:owner><${davPrefix}:href>${principalHref}</${davPrefix}:href></${davPrefix}:owner>`;
       }
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     // Second propstat: unsupported properties (404 Not Found)
     if (unsupportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       unsupportedProps.forEach(prop => {
+        const propXml = formatUnsupportedProperty(prop, originalCase);
+        const propXmlWithPrefix = propXml.replace(/<D:/g, `<${davPrefix}:`).replace(/<\/D:/g, `</${davPrefix}:`);
         xml += `
-        ${formatUnsupportedProperty(prop, originalCase)}`;
+        ${propXmlWithPrefix}`;
       });
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 404 Not Found</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     xml += `
-  </D:response>
-</D:multistatus>`;
+  </${davPrefix}:response>
+</${davPrefix}:multistatus>`;
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(207).send(xml);
@@ -648,8 +703,13 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
     const { requested, originalCase } = parsePropfindProperties(body);
+    // CRITICAL: Extract DAV namespace prefix from request (macOS uses A: instead of D:)
+    const davPrefix = extractDavPrefix(body);
     // CRITICAL: Match the exact path from request (preserve trailing slash)
     const relativeHref = req.path.endsWith('/') ? `/caldav/principals/` : `/caldav/principals`;
+    
+    // CRITICAL: Principal URL must match exactly what's configured in routing
+    const principalHref = `/caldav/principals/${calendarId}/`;
     
     // If no properties requested, default to resourcetype
     if (requested.size === 0) {
@@ -657,9 +717,9 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
     }
     
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
-  <D:response>
-    <D:href>${relativeHref}</D:href>`;
+<${davPrefix}:multistatus xmlns:${davPrefix}="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
+  <${davPrefix}:response>
+    <${davPrefix}:href>${relativeHref}</${davPrefix}:href>`;
     
     const supportedProps: string[] = [];
     const unsupportedProps: string[] = [];
@@ -688,59 +748,62 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
     
     if (supportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       if (supportedProps.includes('resourcetype')) {
         xml += `
-        <D:resourcetype><D:collection/></D:resourcetype>`;
+        <${davPrefix}:resourcetype><${davPrefix}:collection/></${davPrefix}:resourcetype>`;
       }
       if (supportedProps.includes('displayname')) {
         xml += `
-        <D:displayname>Calendar User</D:displayname>`;
+        <${davPrefix}:displayname>Calendar User</${davPrefix}:displayname>`;
       }
       if (supportedProps.includes('calendar-home-set')) {
         xml += `
         <C:calendar-home-set>
-          <D:href>${relativeHref.replace('/principals/', '/calendars/')}${calendarId}/</D:href>
+          <${davPrefix}:href>${relativeHref.replace('/principals/', '/calendars/')}${calendarId}/</${davPrefix}:href>
         </C:calendar-home-set>`;
       }
       if (supportedProps.includes('current-user-principal')) {
+        // CRITICAL: Use consistent principal URL that matches routing
         xml += `
-        <D:current-user-principal>
-          <D:href>${relativeHref}${calendarId}/</D:href>
-        </D:current-user-principal>`;
+        <${davPrefix}:current-user-principal>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:current-user-principal>`;
       }
       if (supportedProps.includes('owner')) {
         xml += `
-        <D:owner><D:href>${relativeHref}${calendarId}/</D:href></D:owner>`;
+        <${davPrefix}:owner><${davPrefix}:href>${principalHref}</${davPrefix}:href></${davPrefix}:owner>`;
       }
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     if (unsupportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       unsupportedProps.forEach(prop => {
+        const propXml = formatUnsupportedProperty(prop, originalCase);
+        const propXmlWithPrefix = propXml.replace(/<D:/g, `<${davPrefix}:`).replace(/<\/D:/g, `</${davPrefix}:`);
         xml += `
-        ${formatUnsupportedProperty(prop, originalCase)}`;
+        ${propXmlWithPrefix}`;
       });
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 404 Not Found</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     xml += `
-  </D:response>
-</D:multistatus>`;
+  </${davPrefix}:response>
+</${davPrefix}:multistatus>`;
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(207).send(xml);
@@ -808,6 +871,10 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     
     // CRITICAL: Match the exact path from request (preserve trailing slash)
     const relativeHref = req.path.endsWith('/') ? `/caldav/calendars/${calendarId}/` : `/caldav/calendars/${calendarId}`;
+    
+    // CRITICAL: Principal URL must match exactly what's configured in routing
+    // Use the simple /principals/:id/ format for consistency
+    const principalHref = `/caldav/principals/${calendarId}/`;
     
     // If no properties requested, default to resourcetype
     if (requested.size === 0) {
@@ -893,8 +960,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
         <${davPrefix}:sync-token>urn:uuid:${calendarId}-${etag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
       }
       if (supportedProps.includes('current-user-principal')) {
-        // CRITICAL: Generate principal path correctly - just replace calendars with principals
-        const principalHref = relativeHref.replace('/calendars/', '/principals/');
+        // CRITICAL: Use consistent principal URL that matches routing
         xml += `
         <${davPrefix}:current-user-principal>
           <${davPrefix}:href>${principalHref}</${davPrefix}:href>
@@ -902,7 +968,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       }
       if (supportedProps.includes('owner')) {
         xml += `
-        <${davPrefix}:owner><${davPrefix}:href>${relativeHref.replace('/calendars/', '/principals/')}${calendarId}/</${davPrefix}:href></${davPrefix}:owner>`;
+        <${davPrefix}:owner><${davPrefix}:href>${principalHref}</${davPrefix}:href></${davPrefix}:owner>`;
       }
       
       // CalDAV properties
@@ -989,7 +1055,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
         });
         
         if (eventSupportedProps.length > 0) {
-          xml += `
+    xml += `
     <${davPrefix}:propstat>
       <${davPrefix}:prop>`;
           
@@ -1076,6 +1142,9 @@ END:VCALENDAR</C:calendar-data>
     const { requested, hasScheduleTag, hasCreatedBy, hasUpdatedBy } = parseRequestedProperties(body);
     const hasUnsupportedProps = hasScheduleTag || hasCreatedBy || hasUpdatedBy;
     
+    // CRITICAL: Extract DAV namespace prefix from request (macOS uses A: instead of D:)
+    const davPrefix = extractDavPrefix(body);
+    
     // Extract namespace prefixes from request to match client's usage
     const { caldavPrefix, csPrefix } = extractNamespacePrefixes(body);
     
@@ -1084,7 +1153,7 @@ END:VCALENDAR</C:calendar-data>
     
     // Build namespace declarations - handle prefix conflicts
     // If client uses same prefix for both namespaces, we need to use different ones in response
-    let namespaceDecls = `xmlns:D="${DAV_NS}"`;
+    let namespaceDecls = `xmlns:${davPrefix}="${DAV_NS}"`;
     let caldavPropPrefix = caldavPrefix;
     let csPropPrefix = csPrefix;
     
@@ -1104,9 +1173,9 @@ END:VCALENDAR</C:calendar-data>
         csPropPrefix = 'CS';
       }
     }
-    
+
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus ${namespaceDecls}>`;
+<${davPrefix}:multistatus ${namespaceDecls}>`;
 
     if (isMultiget) {
       // Calendar-multiget: return responses for ALL requested hrefs
@@ -1126,8 +1195,8 @@ END:VCALENDAR</C:calendar-data>
         const eventId = eventIdMatch ? Number(eventIdMatch[1]) : null;
         
         xml += `
-  <D:response>
-    <D:href>${requestedHref}</D:href>`;
+  <${davPrefix}:response>
+    <${davPrefix}:href>${requestedHref}</${davPrefix}:href>`;
         
         if (eventId && eventMap.has(eventId)) {
           // Event exists - return 200 OK with properties
@@ -1136,13 +1205,13 @@ END:VCALENDAR</C:calendar-data>
           const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
           
           xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
           
           // CRITICAL: Always include getetag when requested
           if (mustIncludeGetetag || requested.has('getetag')) {
             xml += `
-        <D:getetag>${eventEtag}</D:getetag>`;
+        <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
           }
           if (requested.has('calendar-data')) {
             xml += `
@@ -1150,15 +1219,15 @@ END:VCALENDAR</C:calendar-data>
           }
           
           xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
           
           // Unsupported properties (404 Not Found) - use same namespace prefixes as request
           if (hasUnsupportedProps) {
             xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
             
             if (hasScheduleTag) {
               xml += `
@@ -1174,41 +1243,42 @@ END:VCALENDAR</C:calendar-data>
             }
             
             xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 404 Not Found</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
           }
         } else {
           // Event doesn't exist - return 404 Not Found
+          // CRITICAL: Must return proper 404 response for missing events
           xml += `
-    <D:status>HTTP/1.1 404 Not Found</D:status>`;
+    <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>`;
         }
         
         xml += `
-  </D:response>`;
+  </${davPrefix}:response>`;
       }
     } else {
       // Regular calendar-query: return all events
       const events = await storage.getEvents({ calendarId, userId: undefined });
-      
-      for (const event of events) {
-        const eventIcs = generateEventICS(event, calendarId);
-        const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+
+    for (const event of events) {
+      const eventIcs = generateEventICS(event, calendarId);
+      const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
         const relativeHref = `/caldav/calendars/${calendarId}/event-${event.id}.ics`;
         
-        xml += `
-  <D:response>
-    <D:href>${relativeHref}</D:href>`;
+      xml += `
+  <${davPrefix}:response>
+    <${davPrefix}:href>${relativeHref}</${davPrefix}:href>`;
         
         // First propstat: supported properties (200 OK)
         xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
         
         // CRITICAL: Always include getetag when requested
         if (mustIncludeGetetag || requested.has('getetag')) {
           xml += `
-        <D:getetag>${eventEtag}</D:getetag>`;
+        <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
         }
         if (requested.has('calendar-data')) {
           xml += `
@@ -1216,15 +1286,15 @@ END:VCALENDAR</C:calendar-data>
         }
         
         xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
         
         // Second propstat: unsupported properties (404 Not Found) - use same namespace prefixes
         if (hasUnsupportedProps) {
           xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
           
           if (hasScheduleTag) {
             xml += `
@@ -1240,18 +1310,18 @@ END:VCALENDAR</C:calendar-data>
           }
           
           xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 404 Not Found</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
         }
         
         xml += `
-  </D:response>`;
+  </${davPrefix}:response>`;
       }
     }
 
     xml += `
-</D:multistatus>`;
+</${davPrefix}:multistatus>`;
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(207).send(xml);
@@ -1259,16 +1329,112 @@ END:VCALENDAR</C:calendar-data>
   }
 
   if (method === "PROPPATCH") {
-    const xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}">
-  <D:response>
-    <D:href>${baseUrl}/caldav/calendars/${calendarId}/</D:href>
-    <D:propstat>
-      <D:prop/>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
-  </D:response>
-</D:multistatus>`;
+    const body = typeof req.body === 'string' ? req.body : '';
+    const { properties } = parseProppatchProperties(body);
+    
+    // CRITICAL: Extract DAV namespace prefix from request (macOS uses A: instead of D:)
+    const davPrefix = extractDavPrefix(body);
+    
+    // CRITICAL: Match the exact path from request (preserve trailing slash)
+    // Use relative URI (path-absolute) to match PROPFIND responses
+    const relativeHref = req.path.endsWith('/') ? `/caldav/calendars/${calendarId}/` : `/caldav/calendars/${calendarId}`;
+    
+    // Extract Apple namespace prefix from request
+    // macOS uses D: for Apple namespace, but we'll use APPLE: to avoid conflict
+    let applePrefix = 'D';
+    const appleNsMatch = body.match(/xmlns:([^=]+)="http:\/\/apple\.com\/ns\/ical\/"/i);
+    if (appleNsMatch) {
+      applePrefix = appleNsMatch[1];
+    }
+    
+    // Separate supported and unsupported properties
+    // We don't support Apple's calendar-order extension
+    const supportedProps: typeof properties = [];
+    const unsupportedProps: typeof properties = [];
+    
+    properties.forEach(prop => {
+      if (prop.namespace === 'http://apple.com/ns/ical/' && prop.name === 'calendar-order') {
+        unsupportedProps.push(prop);
+      } else {
+        // For now, we don't support any property updates
+        // You can add support for other properties here in the future
+        unsupportedProps.push(prop);
+      }
+    });
+    
+    // Build response
+    let xml = `<?xml version="1.0" encoding="utf-8"?>
+<${davPrefix}:multistatus xmlns:${davPrefix}="${DAV_NS}" xmlns:APPLE="http://apple.com/ns/ical/">
+  <${davPrefix}:response>
+    <${davPrefix}:href>${relativeHref}</${davPrefix}:href>`;
+    
+    // Helper function to determine namespace prefix for a property
+    const getPropPrefix = (prop: {namespace: string, prefix: string}): string => {
+      if (prop.namespace === 'http://apple.com/ns/ical/') {
+        return 'APPLE';
+      } else if (prop.namespace === CALDAV_NS) {
+        return 'C';
+      } else if (prop.namespace === CS_NS) {
+        return 'CS';
+      } else {
+        return davPrefix;
+      }
+    };
+    
+    // Echo back supported properties (200 OK)
+    if (supportedProps.length > 0) {
+      xml += `
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
+      
+      supportedProps.forEach(prop => {
+        const propPrefix = getPropPrefix(prop);
+        if (prop.value.trim()) {
+          xml += `
+        <${propPrefix}:${prop.name}>${escapeXml(prop.value)}</${propPrefix}:${prop.name}>`;
+        } else {
+          xml += `
+        <${propPrefix}:${prop.name}/>`;
+        }
+      });
+      
+      xml += `
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
+    }
+    
+    // Echo back unsupported properties (403 Forbidden for calendar-order)
+    if (unsupportedProps.length > 0) {
+      xml += `
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
+      
+      unsupportedProps.forEach(prop => {
+        const propPrefix = getPropPrefix(prop);
+        // CRITICAL: Must echo back the property name, even if we reject it
+        xml += `
+        <${propPrefix}:${prop.name}/>`;
+      });
+      
+      xml += `
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 403 Forbidden</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
+    }
+    
+    // If no properties found in request, return empty propstat
+    if (properties.length === 0) {
+      xml += `
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop/>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
+    }
+    
+    xml += `
+  </${davPrefix}:response>
+</${davPrefix}:multistatus>`;
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(207).send(xml);
@@ -1323,8 +1489,13 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
     const { requested, originalCase } = parsePropfindProperties(body);
+    // CRITICAL: Extract DAV namespace prefix from request (macOS uses A: instead of D:)
+    const davPrefix = extractDavPrefix(body);
     // CRITICAL: Match the exact path from request (preserve trailing slash)
     const relativeHref = req.path.endsWith('/') ? `/caldav/principals/${req.params.id}/${req.params.subId}/` : `/caldav/principals/${req.params.id}/${req.params.subId}`;
+    
+    // CRITICAL: Principal URL must match exactly what's configured in routing
+    const principalHref = relativeHref;
     
     // If no properties requested, default to resourcetype
     if (requested.size === 0) {
@@ -1332,9 +1503,9 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
     }
     
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
-  <D:response>
-    <D:href>${relativeHref}</D:href>`;
+<${davPrefix}:multistatus xmlns:${davPrefix}="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
+  <${davPrefix}:response>
+    <${davPrefix}:href>${relativeHref}</${davPrefix}:href>`;
     
     const supportedProps: string[] = [];
     const unsupportedProps: string[] = [];
@@ -1372,22 +1543,22 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
     
     if (supportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       if (supportedProps.includes('resourcetype')) {
         xml += `
-        <D:resourcetype><D:principal/></D:resourcetype>`;
+        <${davPrefix}:resourcetype><${davPrefix}:principal/></${davPrefix}:resourcetype>`;
       }
       if (supportedProps.includes('displayname')) {
         xml += `
-        <D:displayname>Calendar User</D:displayname>`;
+        <${davPrefix}:displayname>Calendar User</${davPrefix}:displayname>`;
       }
       if (supportedProps.includes('calendar-home-set')) {
         const calendarHomeHref = `/caldav/calendars/${calendarId}/`;
         xml += `
         <C:calendar-home-set>
-          <D:href>${calendarHomeHref}</D:href>
+          <${davPrefix}:href>${calendarHomeHref}</${davPrefix}:href>
         </C:calendar-home-set>`;
       }
       if (supportedProps.includes('email-address-set')) {
@@ -1397,41 +1568,44 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
         </C:email-address-set>`;
       }
       if (supportedProps.includes('current-user-principal')) {
+        // CRITICAL: Use consistent principal URL that matches routing
         xml += `
-        <D:current-user-principal>
-          <D:href>${relativeHref}</D:href>
-        </D:current-user-principal>`;
+        <${davPrefix}:current-user-principal>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:current-user-principal>`;
       }
       if (supportedProps.includes('owner')) {
         xml += `
-        <D:owner><D:href>${relativeHref}</D:href></D:owner>`;
+        <${davPrefix}:owner><${davPrefix}:href>${principalHref}</${davPrefix}:href></${davPrefix}:owner>`;
       }
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     if (unsupportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       unsupportedProps.forEach(prop => {
+        const propXml = formatUnsupportedProperty(prop, originalCase);
+        const propXmlWithPrefix = propXml.replace(/<D:/g, `<${davPrefix}:`).replace(/<\/D:/g, `</${davPrefix}:`);
         xml += `
-        ${formatUnsupportedProperty(prop, originalCase)}`;
+        ${propXmlWithPrefix}`;
       });
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 404 Not Found</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     xml += `
-  </D:response>
-</D:multistatus>`;
+  </${davPrefix}:response>
+</${davPrefix}:multistatus>`;
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(207).send(xml);
@@ -1460,8 +1634,14 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
     const { requested, originalCase } = parsePropfindProperties(body);
+    // CRITICAL: Extract DAV namespace prefix from request (macOS uses A: instead of D:)
+    const davPrefix = extractDavPrefix(body);
     // CRITICAL: Match the exact path from request (preserve trailing slash)
     const relativeHref = req.path.endsWith('/') ? `/caldav/principals/${calendarId}/` : `/caldav/principals/${calendarId}`;
+    
+    // CRITICAL: Principal URL must match exactly what's configured in routing
+    // Use the same href format for consistency
+    const principalHref = relativeHref;
     
     // If no properties requested, default to resourcetype
     if (requested.size === 0) {
@@ -1469,9 +1649,9 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
     }
     
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
-  <D:response>
-    <D:href>${relativeHref}</D:href>`;
+<${davPrefix}:multistatus xmlns:${davPrefix}="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
+  <${davPrefix}:response>
+    <${davPrefix}:href>${relativeHref}</${davPrefix}:href>`;
     
     const supportedProps: string[] = [];
     const unsupportedProps: string[] = [];
@@ -1512,23 +1692,23 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
     
     if (supportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       if (supportedProps.includes('resourcetype')) {
         xml += `
-        <D:resourcetype><D:principal/></D:resourcetype>`;
+        <${davPrefix}:resourcetype><${davPrefix}:principal/></${davPrefix}:resourcetype>`;
       }
       if (supportedProps.includes('displayname')) {
         xml += `
-        <D:displayname>Calendar User</D:displayname>`;
+        <${davPrefix}:displayname>Calendar User</${davPrefix}:displayname>`;
       }
       if (supportedProps.includes('calendar-home-set')) {
         // CRITICAL: Fix path construction - should be /calendars/{calendarId}/ not /calendars/{calendarId}/{calendarId}/
         const calendarHomeHref = `/caldav/calendars/${calendarId}/`;
         xml += `
         <C:calendar-home-set>
-          <D:href>${calendarHomeHref}</D:href>
+          <${davPrefix}:href>${calendarHomeHref}</${davPrefix}:href>
         </C:calendar-home-set>`;
       }
       if (supportedProps.includes('email-address-set')) {
@@ -1539,41 +1719,44 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
         </C:email-address-set>`;
       }
       if (supportedProps.includes('current-user-principal')) {
+        // CRITICAL: Use consistent principal URL that matches routing
         xml += `
-        <D:current-user-principal>
-          <D:href>${relativeHref}</D:href>
-        </D:current-user-principal>`;
+        <${davPrefix}:current-user-principal>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:current-user-principal>`;
       }
       if (supportedProps.includes('owner')) {
         xml += `
-        <D:owner><D:href>${relativeHref}</D:href></D:owner>`;
+        <${davPrefix}:owner><${davPrefix}:href>${principalHref}</${davPrefix}:href></${davPrefix}:owner>`;
       }
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     if (unsupportedProps.length > 0) {
       xml += `
-    <D:propstat>
-      <D:prop>`;
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
       
       unsupportedProps.forEach(prop => {
+        const propXml = formatUnsupportedProperty(prop, originalCase);
+        const propXmlWithPrefix = propXml.replace(/<D:/g, `<${davPrefix}:`).replace(/<\/D:/g, `</${davPrefix}:`);
         xml += `
-        ${formatUnsupportedProperty(prop, originalCase)}`;
+        ${propXmlWithPrefix}`;
       });
       
       xml += `
-      </D:prop>
-      <D:status>HTTP/1.1 404 Not Found</D:status>
-    </D:propstat>`;
+      </${davPrefix}:prop>
+      <${davPrefix}:status>HTTP/1.1 404 Not Found</${davPrefix}:status>
+    </${davPrefix}:propstat>`;
     }
     
     xml += `
-  </D:response>
-</D:multistatus>`;
+  </${davPrefix}:response>
+</${davPrefix}:multistatus>`;
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(207).send(xml);
