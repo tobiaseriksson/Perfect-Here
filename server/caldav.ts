@@ -163,6 +163,7 @@ function parseRequestedProperties(body: string): {
 }
 
 // Parse requested properties from PROPFIND request body
+// This function extracts property names from XML tags, handling namespace prefixes (D:, A:, C:, CS:, etc.)
 function parsePropfindProperties(body: string): Set<string> {
   const requested = new Set<string>();
   
@@ -171,56 +172,78 @@ function parsePropfindProperties(body: string): Set<string> {
     return requested;
   }
   
-  // Look for <prop> section in the XML body
-  const propMatch = body.match(/<[^:]*:prop[^>]*>([\s\S]*?)<\/[^:]*:prop>/i);
+  // Look for <prop> section in the XML body (handle any namespace prefix)
+  const propMatch = body.match(/<[^:>]*:prop[^>]*>([\s\S]*?)<\/[^:>]*:prop>/i);
   if (!propMatch) {
     // If no <prop> found, return empty set
     return requested;
   }
   
   const propContent = propMatch[1];
-  const bodyLower = propContent.toLowerCase();
   
-  // Check for common DAV properties
-  if (bodyLower.match(/<[^:]*:resourcetype[^>]*\/?>/i) || bodyLower.includes('resourcetype')) {
-    requested.add('resourcetype');
-  }
-  if (bodyLower.match(/<[^:]*:getetag[^>]*\/?>/i) || bodyLower.includes('getetag')) {
-    requested.add('getetag');
-  }
-  if (bodyLower.match(/<[^:]*:getcontenttype[^>]*\/?>/i) || bodyLower.includes('getcontenttype')) {
-    requested.add('getcontenttype');
-  }
-  if (bodyLower.match(/<[^:]*:displayname[^>]*\/?>/i) || bodyLower.includes('displayname')) {
-    requested.add('displayname');
-  }
-  if (bodyLower.match(/<[^:]*:current-user-principal[^>]*\/?>/i) || bodyLower.includes('current-user-principal')) {
-    requested.add('current-user-principal');
-  }
-  if (bodyLower.match(/<[^:]*:owner[^>]*\/?>/i) || bodyLower.includes('owner')) {
-    requested.add('owner');
-  }
-  if (bodyLower.match(/<[^:]*:sync-token[^>]*\/?>/i) || bodyLower.includes('sync-token')) {
-    requested.add('sync-token');
+  // Map of property names we recognize (local name -> our internal name)
+  const propertyMap: Record<string, string> = {
+    'resourcetype': 'resourcetype',
+    'getetag': 'getetag',
+    'getcontenttype': 'getcontenttype',
+    'displayname': 'displayname',
+    'current-user-principal': 'current-user-principal',
+    'owner': 'owner',
+    'sync-token': 'sync-token',
+    'principal-url': 'principal-url', // macOS Calendar sometimes requests this
+    'calendar-home-set': 'calendar-home-set',
+    'calendar-description': 'calendar-description',
+    'supported-calendar-component-set': 'supported-calendar-component-set',
+    'getctag': 'getctag',
+    'schedule-tag': 'schedule-tag',
+    'created-by': 'created-by',
+    'updated-by': 'updated-by',
+  };
+  
+  // Extract all property tags (handles both self-closing and opening/closing tags)
+  // Pattern matches: <prefix:property-name/> or <prefix:property-name></prefix:property-name>
+  // This is namespace-agnostic - it will match D:, A:, C:, CS:, or any other prefix
+  const propertyTagRegex = /<[^:>]*:([a-z-]+)[^>]*(?:\/>|>[\s\S]*?<\/[^:>]*:\1>)/gi;
+  let match;
+  
+  while ((match = propertyTagRegex.exec(propContent)) !== null) {
+    const localName = match[1].toLowerCase();
+    if (propertyMap[localName]) {
+      requested.add(propertyMap[localName]);
+    } else {
+      // Unknown property - add it anyway so we can return 404 for it
+      requested.add(localName);
+    }
   }
   
-  // Check for CalDAV properties
-  if (bodyLower.match(/<[^:]*:calendar-home-set[^>]*\/?>/i) || bodyLower.includes('calendar-home-set')) {
-    requested.add('calendar-home-set');
-  }
-  if (bodyLower.match(/<[^:]*:calendar-description[^>]*\/?>/i) || bodyLower.includes('calendar-description')) {
-    requested.add('calendar-description');
-  }
-  if (bodyLower.match(/<[^:]*:supported-calendar-component-set[^>]*\/?>/i) || bodyLower.includes('supported-calendar-component-set')) {
-    requested.add('supported-calendar-component-set');
-  }
-  
-  // Check for CalendarServer properties
-  if (bodyLower.match(/<[^:]*:getctag[^>]*\/?>/i) || bodyLower.includes('getctag')) {
-    requested.add('getctag');
+  // Fallback: if regex didn't match anything, try simpler pattern matching
+  // This handles edge cases where properties might be formatted differently
+  if (requested.size === 0) {
+    const bodyLower = propContent.toLowerCase();
+    for (const [localName, internalName] of Object.entries(propertyMap)) {
+      // Match property names in tags (handles various formats)
+      const pattern = new RegExp(`<[^:>]*:${localName.replace(/-/g, '[-_]?')}[^>]*(?:/>|>)`, 'i');
+      if (pattern.test(propContent) || bodyLower.includes(localName)) {
+        requested.add(internalName);
+      }
+    }
   }
   
   return requested;
+}
+
+// Helper function to format unsupported properties in 404 propstat blocks
+// Returns the XML string for a property with the correct namespace prefix
+function formatUnsupportedProperty(prop: string): string {
+  // Handle properties with proper namespaces based on property name
+  if (prop.startsWith('calendar-') || prop === 'supported-calendar-component-set' || prop === 'schedule-tag') {
+    return `<C:${prop} />`;
+  } else if (prop === 'getctag' || prop === 'created-by' || prop === 'updated-by') {
+    return `<CS:${prop} />`;
+  } else {
+    // Default to DAV namespace for unknown properties (like principal-url, etc.)
+    return `<D:${prop} />`;
+  }
 }
 
 function formatICSDate(date: Date): string {
@@ -411,28 +434,8 @@ router.all("/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => 
       <D:prop>`;
       
       unsupportedProps.forEach(prop => {
-        if (prop === 'getetag') {
-          xml += `
-        <D:getetag />`;
-        } else if (prop === 'getcontenttype') {
-          xml += `
-        <D:getcontenttype />`;
-        } else if (prop === 'displayname') {
-          xml += `
-        <D:displayname />`;
-        } else if (prop === 'sync-token') {
-          xml += `
-        <D:sync-token />`;
-        } else if (prop === 'calendar-description') {
-          xml += `
-        <C:calendar-description />`;
-        } else if (prop === 'supported-calendar-component-set') {
-          xml += `
-        <C:supported-calendar-component-set />`;
-        } else if (prop === 'getctag') {
-          xml += `
-        <CS:getctag />`;
-        }
+        xml += `
+        ${formatUnsupportedProperty(prop)}`;
       });
       
       xml += `
@@ -564,25 +567,8 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
       <D:prop>`;
       
       unsupportedProps.forEach(prop => {
-        if (prop === 'getetag') {
-          xml += `
-        <D:getetag />`;
-        } else if (prop === 'getcontenttype') {
-          xml += `
-        <D:getcontenttype />`;
-        } else if (prop === 'sync-token') {
-          xml += `
-        <D:sync-token />`;
-        } else if (prop === 'calendar-description') {
-          xml += `
-        <C:calendar-description />`;
-        } else if (prop === 'supported-calendar-component-set') {
-          xml += `
-        <C:supported-calendar-component-set />`;
-        } else if (prop === 'getctag') {
-          xml += `
-        <CS:getctag />`;
-        }
+        xml += `
+        ${formatUnsupportedProperty(prop)}`;
       });
       
       xml += `
@@ -783,17 +769,8 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       <D:prop>`;
       
       unsupportedProps.forEach(prop => {
-        // Handle properties with proper namespaces
-        if (prop.startsWith('calendar-') || prop === 'supported-calendar-component-set') {
-          xml += `
-        <C:${prop} />`;
-        } else if (prop === 'getctag') {
-          xml += `
-        <CS:getctag />`;
-        } else {
-          xml += `
-        <D:${prop} />`;
-        }
+        xml += `
+        ${formatUnsupportedProperty(prop)}`;
       });
       
       xml += `
@@ -860,16 +837,8 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       <D:prop>`;
           
           eventUnsupportedProps.forEach(prop => {
-            if (prop.startsWith('calendar-') || prop === 'supported-calendar-component-set') {
-              xml += `
-        <C:${prop} />`;
-            } else if (prop === 'getctag') {
-              xml += `
-        <CS:getctag />`;
-            } else {
-              xml += `
-        <D:${prop} />`;
-            }
+            xml += `
+        ${formatUnsupportedProperty(prop)}`;
           });
           
           xml += `
@@ -1134,16 +1103,8 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
       <D:prop>`;
       
       unsupportedProps.forEach(prop => {
-        if (prop.startsWith('calendar-') || prop === 'supported-calendar-component-set') {
-          xml += `
-        <C:${prop} />`;
-        } else if (prop === 'getctag') {
-          xml += `
-        <CS:getctag />`;
-        } else {
-          xml += `
-        <D:${prop} />`;
-        }
+        xml += `
+        ${formatUnsupportedProperty(prop)}`;
       });
       
       xml += `
