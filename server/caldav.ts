@@ -97,6 +97,67 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+// Parse requested properties from REPORT request body
+function parseRequestedProperties(body: string): {
+  requested: Set<string>;
+  hasScheduleTag: boolean;
+  hasCreatedBy: boolean;
+  hasUpdatedBy: boolean;
+} {
+  const requested = new Set<string>();
+  let hasScheduleTag = false;
+  let hasCreatedBy = false;
+  let hasUpdatedBy = false;
+  
+  if (!body) {
+    // Default properties if none specified
+    requested.add('getetag');
+    requested.add('calendar-data');
+    return { requested, hasScheduleTag, hasCreatedBy, hasUpdatedBy };
+  }
+  
+  // Look for <prop> section in the XML body
+  const propMatch = body.match(/<[^:]*:prop[^>]*>([\s\S]*?)<\/[^:]*:prop>/i);
+  if (!propMatch) {
+    // If no <prop> found, default to common properties
+    requested.add('getetag');
+    requested.add('calendar-data');
+    return { requested, hasScheduleTag, hasCreatedBy, hasUpdatedBy };
+  }
+  
+  const propContent = propMatch[1];
+  const bodyLower = propContent.toLowerCase();
+  
+  // Check for DAV properties (getetag, etc.)
+  if (bodyLower.match(/<[^:]*:getetag[^>]*\/?>/i) || bodyLower.includes('getetag')) {
+    requested.add('getetag');
+  }
+  
+  // Check for CalDAV properties (calendar-data, schedule-tag)
+  if (bodyLower.match(/<[^:]*:calendar-data[^>]*\/?>/i) || bodyLower.includes('calendar-data')) {
+    requested.add('calendar-data');
+  }
+  if (bodyLower.match(/<[^:]*:schedule-tag[^>]*\/?>/i) || bodyLower.includes('schedule-tag')) {
+    hasScheduleTag = true;
+  }
+  
+  // Check for CalendarServer properties (created-by, updated-by)
+  if (bodyLower.match(/<[^:]*:created-by[^>]*\/?>/i) || bodyLower.includes('created-by')) {
+    hasCreatedBy = true;
+  }
+  if (bodyLower.match(/<[^:]*:updated-by[^>]*\/?>/i) || bodyLower.includes('updated-by')) {
+    hasUpdatedBy = true;
+  }
+  
+  // If no properties found in prop section, default to getetag and calendar-data
+  if (requested.size === 0) {
+    requested.add('getetag');
+    requested.add('calendar-data');
+  }
+  
+  return { requested, hasScheduleTag, hasCreatedBy, hasUpdatedBy };
+}
+
 function formatICSDate(date: Date): string {
   const d = new Date(date);
   const year = d.getUTCFullYear();
@@ -426,23 +487,66 @@ END:VCALENDAR</C:calendar-data>
     }
     
     const events = await storage.getEvents({ calendarId, userId: undefined });
+    const { requested, hasScheduleTag, hasCreatedBy, hasUpdatedBy } = parseRequestedProperties(body);
+    const hasUnsupportedProps = hasScheduleTag || hasCreatedBy || hasUpdatedBy;
 
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}">`;
+<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">`;
 
     for (const event of events) {
       const eventIcs = generateEventICS(event, calendarId);
       const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+      const relativeHref = `/caldav/calendars/${calendarId}/event-${event.id}.ics`;
+      
       xml += `
   <D:response>
-    <D:href>${baseUrl}/caldav/calendars/${calendarId}/event-${event.id}.ics</D:href>
+    <D:href>${relativeHref}</D:href>`;
+      
+      // First propstat: supported properties (200 OK)
+      xml += `
     <D:propstat>
-      <D:prop>
-        <D:getetag>${eventEtag}</D:getetag>
-        <C:calendar-data><![CDATA[${eventIcs}]]></C:calendar-data>
+      <D:prop>`;
+      
+      if (requested.has('getetag')) {
+        xml += `
+        <D:getetag>${eventEtag}</D:getetag>`;
+      }
+      if (requested.has('calendar-data')) {
+        xml += `
+        <C:calendar-data><![CDATA[${eventIcs}]]></C:calendar-data>`;
+      }
+      
+      xml += `
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
+    </D:propstat>`;
+      
+      // Second propstat: unsupported properties (404 Not Found)
+      if (hasUnsupportedProps) {
+        xml += `
+    <D:propstat>
+      <D:prop>`;
+        
+        if (hasScheduleTag) {
+          xml += `
+        <C:schedule-tag />`;
+        }
+        if (hasCreatedBy) {
+          xml += `
+        <CS:created-by />`;
+        }
+        if (hasUpdatedBy) {
+          xml += `
+        <CS:updated-by />`;
+        }
+        
+        xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>`;
+      }
+      
+      xml += `
   </D:response>`;
     }
 
