@@ -221,24 +221,24 @@ function parseRequestedProperties(body: string): {
 
 // Parse requested properties from PROPFIND request body
 // This function extracts property names from XML tags, handling namespace prefixes (D:, A:, C:, CS:, etc.)
-function parsePropfindProperties(body: string): Set<string> {
+// Returns both the normalized property names (for lookup) and the original case mapping (for response)
+function parsePropfindProperties(body: string): { requested: Set<string>; originalCase: Map<string, string> } {
   const requested = new Set<string>();
+  const originalCase = new Map<string, string>(); // Maps normalized name -> original case from request
   
   if (!body) {
-    // If no body, return empty set (client didn't request anything specific)
-    return requested;
+    return { requested, originalCase };
   }
   
   // Look for <prop> section in the XML body (handle any namespace prefix)
   const propMatch = body.match(/<[^:>]*:prop[^>]*>([\s\S]*?)<\/[^:>]*:prop>/i);
   if (!propMatch) {
-    // If no <prop> found, return empty set
-    return requested;
+    return { requested, originalCase };
   }
   
   const propContent = propMatch[1];
   
-  // Map of property names we recognize (local name -> our internal name)
+  // Map of property names we recognize (normalized lowercase -> our internal name)
   const propertyMap: Record<string, string> = {
     'resourcetype': 'resourcetype',
     'getetag': 'getetag',
@@ -247,59 +247,80 @@ function parsePropfindProperties(body: string): Set<string> {
     'current-user-principal': 'current-user-principal',
     'owner': 'owner',
     'sync-token': 'sync-token',
-    'principal-url': 'principal-url', // macOS Calendar sometimes requests this
+    'principal-url': 'principal-url', // macOS Calendar sometimes requests this (case-sensitive: principal-URL)
     'calendar-home-set': 'calendar-home-set',
     'calendar-description': 'calendar-description',
     'supported-calendar-component-set': 'supported-calendar-component-set',
+    'email-address-set': 'email-address-set', // macOS Calendar requests this for principal resources
     'getctag': 'getctag',
     'schedule-tag': 'schedule-tag',
     'created-by': 'created-by',
     'updated-by': 'updated-by',
   };
   
-  // Extract all property tags (handles both self-closing and opening/closing tags)
+  // Extract all property tags preserving exact case
   // Pattern matches: <prefix:property-name/> or <prefix:property-name></prefix:property-name>
   // This is namespace-agnostic - it will match D:, A:, C:, CS:, or any other prefix
-  const propertyTagRegex = /<[^:>]*:([a-z-]+)[^>]*(?:\/>|>[\s\S]*?<\/[^:>]*:\1>)/gi;
+  // CRITICAL: We capture the exact case from the XML tag
+  const propertyTagRegex = /<[^:>]*:([a-zA-Z0-9-]+)[^>]*(?:\/>|>[\s\S]*?<\/[^:>]*:\1>)/gi;
   let match;
   
   while ((match = propertyTagRegex.exec(propContent)) !== null) {
-    const localName = match[1].toLowerCase();
-    if (propertyMap[localName]) {
-      requested.add(propertyMap[localName]);
+    const originalName = match[1]; // Preserve exact case from XML
+    const normalizedName = originalName.toLowerCase();
+    
+    // Store the original case mapping
+    originalCase.set(normalizedName, originalName);
+    
+    if (propertyMap[normalizedName]) {
+      requested.add(propertyMap[normalizedName]);
     } else {
-      // Unknown property - add it anyway so we can return 404 for it
-      requested.add(localName);
+      // Unknown property - add normalized name so we can return 404 for it
+      requested.add(normalizedName);
     }
   }
   
   // Fallback: if regex didn't match anything, try simpler pattern matching
-  // This handles edge cases where properties might be formatted differently
   if (requested.size === 0) {
     const bodyLower = propContent.toLowerCase();
     for (const [localName, internalName] of Object.entries(propertyMap)) {
       // Match property names in tags (handles various formats)
-      const pattern = new RegExp(`<[^:>]*:${localName.replace(/-/g, '[-_]?')}[^>]*(?:/>|>)`, 'i');
-      if (pattern.test(propContent) || bodyLower.includes(localName)) {
+      const pattern = new RegExp(`<[^:>]*:([a-zA-Z0-9-]*${localName.replace(/-/g, '[-_]?')}[a-zA-Z0-9-]*)[^>]*(?:/>|>)`, 'i');
+      const fallbackMatch = propContent.match(pattern);
+      if (fallbackMatch) {
+        const originalName = fallbackMatch[1];
+        const normalizedName = originalName.toLowerCase();
+        originalCase.set(normalizedName, originalName);
+        requested.add(internalName);
+      } else if (bodyLower.includes(localName)) {
+        // Last resort: use lowercase version
+        originalCase.set(localName, localName);
         requested.add(internalName);
       }
     }
   }
   
-  return requested;
+  return { requested, originalCase };
 }
 
 // Helper function to format unsupported properties in 404 propstat blocks
 // Returns the XML string for a property with the correct namespace prefix
-function formatUnsupportedProperty(prop: string): string {
-  // Handle properties with proper namespaces based on property name
-  if (prop.startsWith('calendar-') || prop === 'supported-calendar-component-set' || prop === 'schedule-tag') {
-    return `<C:${prop} />`;
-  } else if (prop === 'getctag' || prop === 'created-by' || prop === 'updated-by') {
-    return `<CS:${prop} />`;
+// CRITICAL: Uses originalCase to preserve exact case from request (e.g., principal-URL vs principal-url)
+function formatUnsupportedProperty(prop: string, originalCase?: Map<string, string>): string {
+  // Get the original case from the request, or use normalized version
+  const normalizedProp = prop.toLowerCase();
+  const originalProp = originalCase?.get(normalizedProp) || prop;
+  
+  // Handle properties with proper namespaces based on property name (use normalized for lookup)
+  if (normalizedProp.startsWith('calendar-') || normalizedProp === 'supported-calendar-component-set' || 
+      normalizedProp === 'schedule-tag' || normalizedProp === 'email-address-set') {
+    return `<C:${originalProp} />`;
+  } else if (normalizedProp === 'getctag' || normalizedProp === 'created-by' || normalizedProp === 'updated-by') {
+    return `<CS:${originalProp} />`;
   } else {
-    // Default to DAV namespace for unknown properties (like principal-url, etc.)
-    return `<D:${prop} />`;
+    // Default to DAV namespace for unknown properties (like principal-URL, etc.)
+    // CRITICAL: Use original case (principal-URL) not normalized (principal-url)
+    return `<D:${originalProp} />`;
   }
 }
 
@@ -399,9 +420,13 @@ function generateEtag(calendar: Calendar, events: Event[]): string {
   return `"${Math.abs(hash).toString(16)}"`;
 }
 
-router.options("/", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
-  res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
-  res.setHeader("DAV", "1, 2, calendar-access");
+// CRITICAL: OPTIONS handler for capability discovery
+// macOS and other clients send OPTIONS to /caldav/ to discover server capabilities
+// This MUST return 200 OK with DAV header, not 401 or 404
+// OPTIONS requests for capability discovery don't require authentication
+router.options("/", (req: Request, res: Response) => {
+  res.setHeader("Allow", "GET, HEAD, OPTIONS, PROPFIND, REPORT, PUT, DELETE");
+  res.setHeader("DAV", "1, 2, calendar-access, addressbook");
   res.setHeader("Content-Length", "0");
   res.status(200).end();
 });
@@ -414,8 +439,9 @@ router.all("/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => 
 
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
-    const requested = parsePropfindProperties(body);
-    const relativeHref = `/caldav/`;
+    const { requested, originalCase } = parsePropfindProperties(body);
+    // CRITICAL: Match the exact path from request (preserve trailing slash)
+    const relativeHref = req.path.endsWith('/') ? `/caldav/` : `/caldav`;
     
     let xml = `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
@@ -492,7 +518,7 @@ router.all("/", caldavAuth, async (req: AuthenticatedRequest, res: Response) => 
       
       unsupportedProps.forEach(prop => {
         xml += `
-        ${formatUnsupportedProperty(prop)}`;
+        ${formatUnsupportedProperty(prop, originalCase)}`;
       });
       
       xml += `
@@ -544,8 +570,9 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
 
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
-    const requested = parsePropfindProperties(body);
-    const relativeHref = `/caldav/principals/`;
+    const { requested, originalCase } = parsePropfindProperties(body);
+    // CRITICAL: Match the exact path from request (preserve trailing slash)
+    const relativeHref = req.path.endsWith('/') ? `/caldav/principals/` : `/caldav/principals`;
     
     // If no properties requested, default to resourcetype
     if (requested.size === 0) {
@@ -625,7 +652,7 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
       
       unsupportedProps.forEach(prop => {
         xml += `
-        ${formatUnsupportedProperty(prop)}`;
+        ${formatUnsupportedProperty(prop, originalCase)}`;
       });
       
       xml += `
@@ -689,10 +716,11 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
 
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
-    const requested = parsePropfindProperties(body);
+    const { requested, originalCase } = parsePropfindProperties(body);
     const events = await storage.getEvents({ calendarId, userId: undefined });
     const etag = generateEtag(calendar, events);
-    const relativeHref = `/caldav/calendars/${calendarId}/`;
+    // CRITICAL: Match the exact path from request (preserve trailing slash)
+    const relativeHref = req.path.endsWith('/') ? `/caldav/calendars/${calendarId}/` : `/caldav/calendars/${calendarId}`;
     
     // If no properties requested, default to resourcetype
     if (requested.size === 0) {
@@ -779,9 +807,11 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
         <D:sync-token>urn:uuid:${calendarId}-${etag.replace(/"/g, "")}</D:sync-token>`;
       }
       if (supportedProps.includes('current-user-principal')) {
+        // CRITICAL: Generate principal path correctly - just replace calendars with principals
+        const principalHref = relativeHref.replace('/calendars/', '/principals/');
         xml += `
         <D:current-user-principal>
-          <D:href>${relativeHref.replace('/calendars/', '/principals/')}${calendarId}/</D:href>
+          <D:href>${principalHref}</D:href>
         </D:current-user-principal>`;
       }
       if (supportedProps.includes('owner')) {
@@ -827,7 +857,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       
       unsupportedProps.forEach(prop => {
         xml += `
-        ${formatUnsupportedProperty(prop)}`;
+        ${formatUnsupportedProperty(prop, originalCase)}`;
       });
       
       xml += `
@@ -1064,15 +1094,20 @@ END:VCALENDAR</C:calendar-data>
   res.status(501).send(xmlError(`Method ${method} not implemented`));
 });
 
-router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res: Response) => {
+// Handle nested principal paths like /caldav/principals/1/1/
+// This route must come BEFORE /principals/:id to match more specific paths first
+router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedRequest, res: Response) => {
   const method = req.method.toUpperCase();
   const calendar = req.calendar!;
   const calendarId = calendar.id;
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
-
+  
+  // For nested principal paths like /principals/1/1/, treat it the same as /principals/1/
+  // The subId might be redundant or used for user identification
+  
   if (method === "OPTIONS") {
-    res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
-    res.setHeader("DAV", "1, 2, calendar-access");
+    // CRITICAL: Principal URLs must advertise CalDAV compliance classes
+    res.setHeader("Allow", "OPTIONS, PROPFIND, REPORT");
+    res.setHeader("DAV", "1, 2, calendar-access, calendar-proxy, calendar-schedule");
     res.setHeader("Content-Length", "0");
     res.status(200).end();
     return;
@@ -1080,8 +1115,9 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
 
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
-    const requested = parsePropfindProperties(body);
-    const relativeHref = `/caldav/principals/${calendarId}/`;
+    const { requested, originalCase } = parsePropfindProperties(body);
+    // CRITICAL: Match the exact path from request (preserve trailing slash)
+    const relativeHref = req.path.endsWith('/') ? `/caldav/principals/${req.params.id}/${req.params.subId}/` : `/caldav/principals/${req.params.id}/${req.params.subId}`;
     
     // If no properties requested, default to resourcetype
     if (requested.size === 0) {
@@ -1105,6 +1141,9 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
     if (requested.has('calendar-home-set')) {
       supportedProps.push('calendar-home-set');
     }
+    if (requested.has('email-address-set')) {
+      supportedProps.push('email-address-set');
+    }
     if (requested.has('current-user-principal')) {
       supportedProps.push('current-user-principal');
     }
@@ -1117,6 +1156,12 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
         unsupportedProps.push(prop);
       }
     });
+    
+    // Get user email from calendar share or use a default
+    let userEmail = req.caldavShare?.username || 'user@example.com';
+    if (userEmail && !userEmail.includes('@')) {
+      userEmail = `${userEmail}@glasscal.local`;
+    }
     
     if (supportedProps.length > 0) {
       xml += `
@@ -1132,10 +1177,17 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
         <D:displayname>Calendar User</D:displayname>`;
       }
       if (supportedProps.includes('calendar-home-set')) {
+        const calendarHomeHref = `/caldav/calendars/${calendarId}/`;
         xml += `
         <C:calendar-home-set>
-          <D:href>${relativeHref.replace('/principals/', '/calendars/')}${calendarId}/</D:href>
+          <D:href>${calendarHomeHref}</D:href>
         </C:calendar-home-set>`;
+      }
+      if (supportedProps.includes('email-address-set')) {
+        xml += `
+        <C:email-address-set>
+          <C:email-address>${escapeXml(userEmail)}</C:email-address>
+        </C:email-address-set>`;
       }
       if (supportedProps.includes('current-user-principal')) {
         xml += `
@@ -1161,7 +1213,149 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
       
       unsupportedProps.forEach(prop => {
         xml += `
-        ${formatUnsupportedProperty(prop)}`;
+        ${formatUnsupportedProperty(prop, originalCase)}`;
+      });
+      
+      xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>`;
+    }
+    
+    xml += `
+  </D:response>
+</D:multistatus>`;
+
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.status(207).send(xml);
+    return;
+  }
+
+  res.status(501).send(xmlError(`Method ${method} not implemented`));
+});
+
+router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const method = req.method.toUpperCase();
+  const calendar = req.calendar!;
+  const calendarId = calendar.id;
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+
+  if (method === "OPTIONS") {
+    // CRITICAL: Principal URLs must advertise CalDAV compliance classes
+    // This tells macOS that this is a valid principal resource
+    res.setHeader("Allow", "OPTIONS, PROPFIND, REPORT");
+    res.setHeader("DAV", "1, 2, calendar-access, calendar-proxy, calendar-schedule");
+    res.setHeader("Content-Length", "0");
+    res.status(200).end();
+    return;
+  }
+
+  if (method === "PROPFIND") {
+    const body = typeof req.body === 'string' ? req.body : '';
+    const { requested, originalCase } = parsePropfindProperties(body);
+    // CRITICAL: Match the exact path from request (preserve trailing slash)
+    const relativeHref = req.path.endsWith('/') ? `/caldav/principals/${calendarId}/` : `/caldav/principals/${calendarId}`;
+    
+    // If no properties requested, default to resourcetype
+    if (requested.size === 0) {
+      requested.add('resourcetype');
+    }
+    
+    let xml = `<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
+  <D:response>
+    <D:href>${relativeHref}</D:href>`;
+    
+    const supportedProps: string[] = [];
+    const unsupportedProps: string[] = [];
+    
+    if (requested.has('resourcetype')) {
+      supportedProps.push('resourcetype');
+    }
+    if (requested.has('displayname')) {
+      supportedProps.push('displayname');
+    }
+    if (requested.has('calendar-home-set')) {
+      supportedProps.push('calendar-home-set');
+    }
+    if (requested.has('email-address-set')) {
+      supportedProps.push('email-address-set');
+    }
+    if (requested.has('current-user-principal')) {
+      supportedProps.push('current-user-principal');
+    }
+    if (requested.has('owner')) {
+      supportedProps.push('owner');
+    }
+    
+    requested.forEach(prop => {
+      if (!supportedProps.includes(prop)) {
+        unsupportedProps.push(prop);
+      }
+    });
+    
+    // Get user email - use caldavShare username if it looks like an email, otherwise construct one
+    // For CalDAV, the username is often the email address
+    let userEmail = req.caldavShare?.username || 'user@example.com';
+    if (userEmail && !userEmail.includes('@')) {
+      // If username doesn't look like an email, try to get from calendar owner
+      // For now, use a default format
+      userEmail = `${userEmail}@glasscal.local`;
+    }
+    
+    if (supportedProps.length > 0) {
+      xml += `
+    <D:propstat>
+      <D:prop>`;
+      
+      if (supportedProps.includes('resourcetype')) {
+        xml += `
+        <D:resourcetype><D:principal/></D:resourcetype>`;
+      }
+      if (supportedProps.includes('displayname')) {
+        xml += `
+        <D:displayname>Calendar User</D:displayname>`;
+      }
+      if (supportedProps.includes('calendar-home-set')) {
+        // CRITICAL: Fix path construction - should be /calendars/{calendarId}/ not /calendars/{calendarId}/{calendarId}/
+        const calendarHomeHref = `/caldav/calendars/${calendarId}/`;
+        xml += `
+        <C:calendar-home-set>
+          <D:href>${calendarHomeHref}</D:href>
+        </C:calendar-home-set>`;
+      }
+      if (supportedProps.includes('email-address-set')) {
+        // macOS Calendar requests email-address-set for calendar invites
+        xml += `
+        <C:email-address-set>
+          <C:email-address>${escapeXml(userEmail)}</C:email-address>
+        </C:email-address-set>`;
+      }
+      if (supportedProps.includes('current-user-principal')) {
+        xml += `
+        <D:current-user-principal>
+          <D:href>${relativeHref}</D:href>
+        </D:current-user-principal>`;
+      }
+      if (supportedProps.includes('owner')) {
+        xml += `
+        <D:owner><D:href>${relativeHref}</D:href></D:owner>`;
+      }
+      
+      xml += `
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>`;
+    }
+    
+    if (unsupportedProps.length > 0) {
+      xml += `
+    <D:propstat>
+      <D:prop>`;
+      
+      unsupportedProps.forEach(prop => {
+        xml += `
+        ${formatUnsupportedProperty(prop, originalCase)}`;
       });
       
       xml += `
