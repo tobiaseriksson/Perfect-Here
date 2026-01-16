@@ -1,19 +1,19 @@
 /**
  * Convert a datetime-local string (browser timezone) to UTC ISO string for storage
  * @param datetimeLocal - String from datetime-local input (e.g., "2024-12-25T14:00")
- * @returns ISO string in UTC (e.g., "2024-12-25T19:00:00Z")
+ * @returns ISO string in UTC (e.g., "2024-12-25T13:00:00Z" for UTC+1 timezone)
  */
 export function datetimeLocalToUTC(datetimeLocal: string): string {
-  // Create a date assuming the string is in UTC (this is what JavaScript does)
-  const assumedUTC = new Date(datetimeLocal);
+  // JavaScript interprets datetime-local strings as LOCAL time (not UTC)
+  const localDate = new Date(datetimeLocal);
   
-  // Get the browser's timezone offset in milliseconds
-  const offset = new Date().getTimezoneOffset() * 60000;
+  // getTimezoneOffset() returns minutes (negative for timezones ahead of UTC)
+  // For UTC+1: returns -60 minutes = -3600000 ms
+  // To convert local to UTC: subtract the offset
+  const offsetMs = localDate.getTimezoneOffset() * 60000;
+  const utcDate = new Date(localDate.getTime() - offsetMs);
   
-  // Adjust: add the offset to convert from "assumed UTC" to actual UTC
-  const actualUTC = new Date(assumedUTC.getTime() + offset);
-  
-  return actualUTC.toISOString();
+  return utcDate.toISOString();
 }
 
 /**
