@@ -103,14 +103,14 @@ router.use((req: Request, res: Response, next: NextFunction) => {
     
     // Log request body if present
     if (req.body && typeof req.body === 'string' && req.body.length > 0) {
-      logLine += ` :: reqBody=${req.body.replace(/\n/g, '\\n')}`;
+      logLine += ` :: reqBody=${req.body.replace(/\n/g, ' ')}`;
     }
     
     // Log response body if present
     if (responseBody && responseBody.length > 0) {
       // Truncate very long response bodies (limit to first 1000 chars)
       const responsePreview = responseBody;
-      logLine += ` :: resBody=${responsePreview.replace(/\n/g, '\\n')}`;
+      logLine += ` :: resBody=${responsePreview.replace(/\n/g, ' ')}`;
     }
     
     console.log(logLine);
@@ -1316,12 +1316,24 @@ END:VCALENDAR</C:calendar-data>
           
           // CRITICAL: Always include getetag when calendar-data is returned (required for caching)
           // Thunderbird needs the ETag to cache events - without it, it will re-download forever
-          const shouldIncludeGetetag = requested.has('getetag') || requested.has('calendar-data');
-          if (shouldIncludeGetetag) {
+          // MUST include getetag if either:
+          // 1. getetag was explicitly requested, OR
+          // 2. calendar-data is being returned (Thunderbird requires ETag with calendar-data)
+          const includeCalendarData = requested.has('calendar-data');
+          // CRITICAL: If calendar-data is requested, we MUST include getetag (Thunderbird requirement)
+          // This prevents infinite download loops where Thunderbird can't cache events
+          const includeGetetag = requested.has('getetag') || includeCalendarData;
+          
+          // CRITICAL: Always output getetag FIRST if it should be included
+          // This ensures Thunderbird can cache the event properly
+          // Order matters: getetag must come before calendar-data
+          // CRITICAL: If calendar-data is being returned, getetag MUST be included
+          if (includeGetetag || includeCalendarData) {
             xml += `
         <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
           }
-          if (requested.has('calendar-data')) {
+          // CRITICAL: Always output calendar-data if requested
+          if (includeCalendarData) {
             xml += `
         <${caldavPropPrefix}:calendar-data><![CDATA[${eventIcs}]]></${caldavPropPrefix}:calendar-data>`;
           }
@@ -1386,12 +1398,19 @@ END:VCALENDAR</C:calendar-data>
         
         // CRITICAL: Always include getetag when calendar-data is returned (required for caching)
         // Thunderbird needs the ETag to cache events - without it, it will re-download forever
-        const shouldIncludeGetetag = requested.has('getetag') || requested.has('calendar-data');
-        if (shouldIncludeGetetag) {
+        // MUST include getetag if either:
+        // 1. getetag was explicitly requested, OR
+        // 2. calendar-data is being returned (Thunderbird requires ETag with calendar-data)
+        const includeCalendarData = requested.has('calendar-data');
+        const includeGetetag = requested.has('getetag') || includeCalendarData;
+        
+        // CRITICAL: Always output getetag first if it should be included
+        if (includeGetetag) {
           xml += `
         <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
         }
-        if (requested.has('calendar-data')) {
+        // CRITICAL: Always output calendar-data if requested
+        if (includeCalendarData) {
           xml += `
         <${caldavPropPrefix}:calendar-data><![CDATA[${eventIcs}]]></${caldavPropPrefix}:calendar-data>`;
         }
