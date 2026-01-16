@@ -1,0 +1,113 @@
+HTTP/1.1 PROPFIND /caldav/calendars/1/ 207 in 4ms :: user=cal_1 :: headers={"host":"0eb9ab60-edd8-436f-922e-a1f5e238b899-00-gz2yrsy04t12.picard.replit.dev","user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:147.0) Gecko/20100101 Thunderbird/147.0","content-length":"144","accept":"text/xml","accept-charset":"utf-8,*;q=0.1","accept-encoding":"gzip, deflate, br, zstd","accept-language":"en-US,en;q=0.9","authorization":"[REDACTED]","cache-control":"no-cache","content-type":"text/xml; charset=utf-8","depth":"1","origin":"https://0eb9ab60-edd8-436f-922e-a1f5e238b899-00-gz2yrsy04t12.picard.replit.dev","pragma":"no-cache","priority":"u=4","sec-fetch-dest":"empty","sec-fetch-mode":"no-cors","sec-fetch-site":"same-origin","x-forwarded-for":"80.78.212.27, 10.81.4.87","x-forwarded-proto":"https","x-replit-user-bio":"","x-replit-user-id":"","x-replit-user-name":"","x-replit-user-profile-image":"","x-replit-user-roles":"","x-replit-user-teams":"","x-replit-user-url":""} :: reqBody=<?xml version="1.0" encoding="UTF-8"?>
+<D:propfind xmlns:D="DAV:"><D:prop><D:getcontenttype/><D:resourcetype/><D:getetag/></D:prop></D:propfind> :: resBody=<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
+  <D:response>
+    <D:href>/caldav/calendars/1/</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:resourcetype>
+          <D:collection/>
+          <C:calendar/>
+        </D:resourcetype>
+        <D:getetag>"c19b4bc92757"</D:getetag>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+    <D:propstat>
+      <D:prop>
+        <D:getcontenttype />
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-2.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-2-19bc6029479"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-1.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-1-19bc6029479"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-4.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-4-19bc6029479"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-5.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-5-19bc6029479"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-6.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-6-19bc6029479"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-10.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-10-19bc6029479"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-11.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-11-19bc6029479"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-13.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-13-19bc618b949"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>/caldav/calendars/1/event-7.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"event-7-19bc6363152"</D:getetag>
+        <D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>
