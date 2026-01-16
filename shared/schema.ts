@@ -13,6 +13,9 @@ export const calendars = pgTable("calendars", {
   ownerId: varchar("owner_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  // CalDAV-specific properties (Apple Calendar extension)
+  caldavOrder: integer("caldav_order"),
+  caldavColor: text("caldav_color"),
 });
 
 export const calendarShares = pgTable("calendar_shares", {
