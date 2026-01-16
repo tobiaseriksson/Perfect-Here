@@ -28,9 +28,24 @@ vi.mock("./storage", () => ({
           ownerId: "user123",
           createdAt: new Date("2025-01-01T00:00:00Z"),
           updatedAt: new Date("2025-01-16T08:53:36.490Z"),
+          caldavOrder: 3,
+          caldavColor: "#FF5733FF",
         };
       }
       return null;
+    }),
+    updateCalendar: vi.fn().mockImplementation(async (id: number, updates: any) => {
+      return {
+        id,
+        title: "Test Calendar",
+        description: "A test calendar",
+        color: "#3b82f6",
+        ownerId: "user123",
+        createdAt: new Date("2025-01-01T00:00:00Z"),
+        updatedAt: new Date(),
+        caldavOrder: updates.caldavOrder ?? 3,
+        caldavColor: updates.caldavColor ?? "#FF5733FF",
+      };
     }),
     getCaldavShare: vi.fn().mockImplementation(async (calendarId: number) => {
       if (calendarId === 1) {
@@ -307,8 +322,8 @@ describe("CalDAV Protocol Tests - Thunderbird Compatibility", () => {
     });
   });
 
-  describe("Test Case 3: PROPPATCH for APPLE:calendar-order", () => {
-    it("should return 200 OK for APPLE:calendar-order (accept as no-op)", async () => {
+  describe("Test Case 3: PROPPATCH for APPLE:calendar-order and calendar-color", () => {
+    it("should return 200 OK for APPLE:calendar-order", async () => {
       const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
 <A:propertyupdate xmlns:A="DAV:" xmlns:D="http://apple.com/ns/ical/">
   <A:set>
@@ -341,6 +356,170 @@ describe("CalDAV Protocol Tests - Thunderbird Compatibility", () => {
 
       // Must NOT contain 403 Forbidden
       expect(body).not.toContain("403 Forbidden");
+    });
+
+    it("should return 200 OK for APPLE:calendar-color", async () => {
+      const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<A:propertyupdate xmlns:A="DAV:" xmlns:D="http://apple.com/ns/ical/">
+  <A:set>
+    <A:prop>
+      <D:calendar-color>#FF5733FF</D:calendar-color>
+    </A:prop>
+  </A:set>
+</A:propertyupdate>`;
+
+      const response = await request(app)
+        .proppatch("/caldav/calendars/1/")
+        .set("Authorization", basicAuth("cal_1", "testpassword123"))
+        .set("Content-Type", "text/xml; charset=utf-8")
+        .send(requestBody);
+
+      expect(response.status).toBe(207);
+
+      const body = response.text;
+
+      // CRITICAL: Must return 200 OK for calendar-color
+      expect(body).toContain("<APPLE:calendar-color");
+      expect(body).toContain("<A:status>HTTP/1.1 200 OK</A:status>");
+      expect(body).not.toContain("403 Forbidden");
+    });
+
+    it("should return 200 OK for both calendar-order and calendar-color in same request", async () => {
+      const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<A:propertyupdate xmlns:A="DAV:" xmlns:D="http://apple.com/ns/ical/">
+  <A:set>
+    <A:prop>
+      <D:calendar-order>5</D:calendar-order>
+      <D:calendar-color>#00FF00FF</D:calendar-color>
+    </A:prop>
+  </A:set>
+</A:propertyupdate>`;
+
+      const response = await request(app)
+        .proppatch("/caldav/calendars/1/")
+        .set("Authorization", basicAuth("cal_1", "testpassword123"))
+        .set("Content-Type", "text/xml; charset=utf-8")
+        .send(requestBody);
+
+      expect(response.status).toBe(207);
+
+      const body = response.text;
+
+      // Both properties should be accepted
+      expect(body).toContain("<APPLE:calendar-order");
+      expect(body).toContain("<APPLE:calendar-color");
+      expect(body).toContain("<A:status>HTTP/1.1 200 OK</A:status>");
+      expect(body).not.toContain("403 Forbidden");
+    });
+  });
+
+  describe("Test Case 4: PROPFIND returns calendar-order and calendar-color", () => {
+    it("should return stored calendar-order value", async () => {
+      const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:propfind xmlns:D="DAV:" xmlns:APPLE="http://apple.com/ns/ical/">
+  <D:prop>
+    <APPLE:calendar-order/>
+  </D:prop>
+</D:propfind>`;
+
+      const response = await request(app)
+        .propfind("/caldav/calendars/1/")
+        .set("Authorization", basicAuth("cal_1", "testpassword123"))
+        .set("Content-Type", "text/xml; charset=utf-8")
+        .set("Depth", "0")
+        .send(requestBody);
+
+      expect(response.status).toBe(207);
+
+      const body = response.text;
+
+      // Should return calendar-order with the stored value (3 from mock)
+      expect(body).toContain("calendar-order");
+      expect(body).toContain(">3<");
+      expect(body).toContain("<D:status>HTTP/1.1 200 OK</D:status>");
+      // Must NOT return 404 for calendar-order
+      expect(body).not.toContain("404 Not Found");
+    });
+
+    it("should return stored calendar-color value", async () => {
+      const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:propfind xmlns:D="DAV:" xmlns:APPLE="http://apple.com/ns/ical/">
+  <D:prop>
+    <APPLE:calendar-color/>
+  </D:prop>
+</D:propfind>`;
+
+      const response = await request(app)
+        .propfind("/caldav/calendars/1/")
+        .set("Authorization", basicAuth("cal_1", "testpassword123"))
+        .set("Content-Type", "text/xml; charset=utf-8")
+        .set("Depth", "0")
+        .send(requestBody);
+
+      expect(response.status).toBe(207);
+
+      const body = response.text;
+
+      // Should return calendar-color with the stored value (#FF5733FF from mock)
+      expect(body).toContain("calendar-color");
+      expect(body).toContain("#FF5733FF");
+      expect(body).toContain("<D:status>HTTP/1.1 200 OK</D:status>");
+      // Must NOT return 404 for calendar-color
+      expect(body).not.toContain("404 Not Found");
+    });
+
+    it("should return both calendar-order and calendar-color in same request", async () => {
+      const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:propfind xmlns:D="DAV:" xmlns:APPLE="http://apple.com/ns/ical/">
+  <D:prop>
+    <APPLE:calendar-order/>
+    <APPLE:calendar-color/>
+  </D:prop>
+</D:propfind>`;
+
+      const response = await request(app)
+        .propfind("/caldav/calendars/1/")
+        .set("Authorization", basicAuth("cal_1", "testpassword123"))
+        .set("Content-Type", "text/xml; charset=utf-8")
+        .set("Depth", "0")
+        .send(requestBody);
+
+      expect(response.status).toBe(207);
+
+      const body = response.text;
+
+      // Both properties should be present with stored values
+      expect(body).toContain("calendar-order");
+      expect(body).toContain(">3<");
+      expect(body).toContain("calendar-color");
+      expect(body).toContain("#FF5733FF");
+      expect(body).toContain("<D:status>HTTP/1.1 200 OK</D:status>");
+    });
+
+    it("should declare APPLE namespace at multistatus root level", async () => {
+      const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:propfind xmlns:D="DAV:" xmlns:APPLE="http://apple.com/ns/ical/">
+  <D:prop>
+    <APPLE:calendar-order/>
+  </D:prop>
+</D:propfind>`;
+
+      const response = await request(app)
+        .propfind("/caldav/calendars/1/")
+        .set("Authorization", basicAuth("cal_1", "testpassword123"))
+        .set("Content-Type", "text/xml; charset=utf-8")
+        .set("Depth", "0")
+        .send(requestBody);
+
+      expect(response.status).toBe(207);
+
+      const body = response.text;
+
+      // APPLE namespace MUST be declared at multistatus level (not inline)
+      expect(body).toContain('xmlns:APPLE="http://apple.com/ns/ical/"');
+      
+      // The multistatus element should include all namespace declarations
+      expect(body).toMatch(/<D:multistatus[^>]*xmlns:APPLE="http:\/\/apple\.com\/ns\/ical\/"/);
     });
   });
 });

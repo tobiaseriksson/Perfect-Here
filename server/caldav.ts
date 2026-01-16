@@ -940,7 +940,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     }
 
     let xml = `<?xml version="1.0" encoding="utf-8"?>
-<${davPrefix}:multistatus xmlns:${davPrefix}="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}">
+<${davPrefix}:multistatus xmlns:${davPrefix}="${DAV_NS}" xmlns:C="${CALDAV_NS}" xmlns:CS="${CS_NS}" xmlns:APPLE="http://apple.com/ns/ical/">
   <${davPrefix}:response>
     <${davPrefix}:href>${relativeHref}</${davPrefix}:href>`;
     
@@ -1113,7 +1113,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       if (supportedProps.includes('calendar-order')) {
         const orderValue = calendar.caldavOrder ?? 1;
         xml += `
-        <APPLE:calendar-order xmlns:APPLE="http://apple.com/ns/ical/">${orderValue}</APPLE:calendar-order>`;
+        <APPLE:calendar-order>${orderValue}</APPLE:calendar-order>`;
       }
       if (supportedProps.includes('calendar-color')) {
         // Use stored CalDAV color, fallback to UI color, or default
@@ -1121,7 +1121,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
         // Ensure color includes alpha channel (8 hex digits for Apple compatibility)
         const normalizedColor = colorValue.length === 7 ? colorValue + 'FF' : colorValue;
         xml += `
-        <APPLE:calendar-color xmlns:APPLE="http://apple.com/ns/ical/">${normalizedColor.toUpperCase()}</APPLE:calendar-color>`;
+        <APPLE:calendar-color>${normalizedColor.toUpperCase()}</APPLE:calendar-color>`;
       }
       
       xml += `
