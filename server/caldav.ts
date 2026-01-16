@@ -984,6 +984,10 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     if (requested.has('owner')) {
       supportedProps.push('owner');
     }
+    // CRITICAL: RFC 3744 - principal-URL identifies the principal that owns the calendar
+    if (requested.has('principal-url') || requested.has('principal-URL')) {
+      supportedProps.push('principal-url');
+    }
     if (requested.has('calendar-home-set')) {
       supportedProps.push('calendar-home-set');
     }
@@ -1039,7 +1043,7 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       if (supportedProps.includes('sync-token')) {
         // sync-token should change when content changes, so use ctag
         // xml += `<${davPrefix}:sync-token>urn:uuid:${calendarId}-${ctag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
-        xml += `<${davPrefix}:sync-token>${ctag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
+        xml += `<${davPrefix}:sync-token>${ctag}</${davPrefix}:sync-token>`;
       }
       if (supportedProps.includes('current-user-principal')) {
         // CRITICAL: Use consistent principal URL that matches routing
@@ -1051,6 +1055,13 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       if (supportedProps.includes('owner')) {
         xml += `
         <${davPrefix}:owner><${davPrefix}:href>${principalHref}</${davPrefix}:href></${davPrefix}:owner>`;
+      }
+      // CRITICAL: RFC 3744 - principal-URL must point to the principal resource that owns the calendar
+      if (supportedProps.includes('principal-url')) {
+        xml += `
+        <${davPrefix}:principal-URL>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:principal-URL>`;
       }
       
       // CalDAV properties
@@ -1669,8 +1680,9 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
   
   if (method === "OPTIONS") {
     // CRITICAL: Principal URLs must advertise CalDAV compliance classes
-    res.setHeader("Allow", "OPTIONS, PROPFIND, REPORT");
-    res.setHeader("DAV", "1, 2, calendar-access, calendar-proxy, calendar-schedule");
+    // RFC 3744 requires access-control for ACL compliance
+    res.setHeader("Allow", "OPTIONS, PROPFIND, REPORT, PROPPATCH, PUT, DELETE");
+    res.setHeader("DAV", "1, 2, calendar-access, calendar-proxy, calendar-schedule, access-control");
     res.setHeader("Content-Length", "0");
     res.status(200).end();
     return;
@@ -1715,6 +1727,10 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
     if (requested.has('current-user-principal')) {
       supportedProps.push('current-user-principal');
     }
+    // CRITICAL: RFC 3744 - principal-URL identifies the principal resource
+    if (requested.has('principal-url') || requested.has('principal-URL')) {
+      supportedProps.push('principal-url');
+    }
     if (requested.has('owner')) {
       supportedProps.push('owner');
     }
@@ -1731,18 +1747,22 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
       userEmail = `${userEmail}@glasscal.local`;
     }
     
+    // Get display name - use username or calendar title
+    const displayName = req.caldavShare?.username || `cal_${calendarId}`;
+    
     if (supportedProps.length > 0) {
       xml += `
     <${davPrefix}:propstat>
       <${davPrefix}:prop>`;
       
       if (supportedProps.includes('resourcetype')) {
+        // CRITICAL: Principal resource type must include <principal/>
         xml += `
         <${davPrefix}:resourcetype><${davPrefix}:principal/></${davPrefix}:resourcetype>`;
       }
       if (supportedProps.includes('displayname')) {
         xml += `
-        <${davPrefix}:displayname>Calendar User</${davPrefix}:displayname>`;
+        <${davPrefix}:displayname>${escapeXml(displayName)}</${davPrefix}:displayname>`;
       }
       if (supportedProps.includes('calendar-home-set')) {
         const calendarHomeHref = `/caldav/calendars/${calendarId}/`;
@@ -1763,6 +1783,13 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
         <${davPrefix}:current-user-principal>
           <${davPrefix}:href>${principalHref}</${davPrefix}:href>
         </${davPrefix}:current-user-principal>`;
+      }
+      // CRITICAL: RFC 3744 - principal-URL must point to the principal resource
+      if (supportedProps.includes('principal-url')) {
+        xml += `
+        <${davPrefix}:principal-URL>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:principal-URL>`;
       }
       if (supportedProps.includes('owner')) {
         xml += `
@@ -1814,8 +1841,9 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
   if (method === "OPTIONS") {
     // CRITICAL: Principal URLs must advertise CalDAV compliance classes
     // This tells macOS that this is a valid principal resource
-    res.setHeader("Allow", "OPTIONS, PROPFIND, REPORT");
-    res.setHeader("DAV", "1, 2, calendar-access, calendar-proxy, calendar-schedule");
+    // RFC 3744 requires access-control for ACL compliance
+    res.setHeader("Allow", "OPTIONS, PROPFIND, REPORT, PROPPATCH, PUT, DELETE");
+    res.setHeader("DAV", "1, 2, calendar-access, calendar-proxy, calendar-schedule, access-control");
     res.setHeader("Content-Length", "0");
     res.status(200).end();
     return;
@@ -1861,6 +1889,10 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
     if (requested.has('current-user-principal')) {
       supportedProps.push('current-user-principal');
     }
+    // CRITICAL: RFC 3744 - principal-URL identifies the principal resource
+    if (requested.has('principal-url') || requested.has('principal-URL')) {
+      supportedProps.push('principal-url');
+    }
     if (requested.has('owner')) {
       supportedProps.push('owner');
     }
@@ -1880,18 +1912,22 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
       userEmail = `${userEmail}@glasscal.local`;
     }
     
+    // Get display name - use username or calendar title
+    const displayName = req.caldavShare?.username || `cal_${calendarId}`;
+    
     if (supportedProps.length > 0) {
       xml += `
     <${davPrefix}:propstat>
       <${davPrefix}:prop>`;
       
       if (supportedProps.includes('resourcetype')) {
+        // CRITICAL: Principal resource type must include <principal/>
         xml += `
         <${davPrefix}:resourcetype><${davPrefix}:principal/></${davPrefix}:resourcetype>`;
       }
       if (supportedProps.includes('displayname')) {
         xml += `
-        <${davPrefix}:displayname>Calendar User</${davPrefix}:displayname>`;
+        <${davPrefix}:displayname>${escapeXml(displayName)}</${davPrefix}:displayname>`;
       }
       if (supportedProps.includes('calendar-home-set')) {
         // CRITICAL: Fix path construction - should be /calendars/{calendarId}/ not /calendars/{calendarId}/{calendarId}/
@@ -1909,6 +1945,20 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
         </C:email-address-set>`;
       }
       if (supportedProps.includes('current-user-principal')) {
+        // CRITICAL: Use consistent principal URL that matches routing
+        xml += `
+        <${davPrefix}:current-user-principal>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:current-user-principal>`;
+      }
+      // CRITICAL: RFC 3744 - principal-URL must point to the principal resource
+      if (supportedProps.includes('principal-url')) {
+        xml += `
+        <${davPrefix}:principal-URL>
+          <${davPrefix}:href>${principalHref}</${davPrefix}:href>
+        </${davPrefix}:principal-URL>`;
+      }
+      if (supportedProps.includes('owner')) {
         // CRITICAL: Use consistent principal URL that matches routing
         xml += `
         <${davPrefix}:current-user-principal>
