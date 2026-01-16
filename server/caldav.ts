@@ -1166,46 +1166,60 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
   <${davPrefix}:response>
     <${davPrefix}:href>${eventRelativeHref}</${davPrefix}:href>`;
         
-        const eventSupportedProps: string[] = [];
+        // CRITICAL: For events, always include essential properties in 200 OK block
+        // macOS requires current-user-privilege-set to be in 200 OK, not 404
+        // Essential properties: getetag, getcontenttype, current-user-privilege-set (if requested)
         const eventUnsupportedProps: string[] = [];
+        const includePrivilegeSet = requested.has('current-user-privilege-set');
         
-        if (requested.has('getetag')) {
-          eventSupportedProps.push('getetag');
-        }
-        if (requested.has('getcontenttype')) {
-          eventSupportedProps.push('getcontenttype');
-        }
-        
+        // Build list of unsupported properties (only include what was requested)
+        // Exclude properties that are collection-only or essential for events
         requested.forEach(prop => {
-          if (!eventSupportedProps.includes(prop) && prop !== 'resourcetype' && prop !== 'displayname' && 
-              prop !== 'sync-token' && prop !== 'calendar-description' && prop !== 'supported-calendar-component-set' &&
-              prop !== 'getctag' && prop !== 'current-user-principal' && prop !== 'owner' && prop !== 'calendar-home-set') {
+          if (prop !== 'getetag' && prop !== 'getcontenttype' && prop !== 'current-user-privilege-set' &&
+              prop !== 'resourcetype' && prop !== 'displayname' && 
+              prop !== 'sync-token' && prop !== 'calendar-description' && 
+              prop !== 'supported-calendar-component-set' &&
+              prop !== 'getctag' && prop !== 'current-user-principal' && 
+              prop !== 'owner' && prop !== 'calendar-home-set') {
             if (!eventUnsupportedProps.includes(prop)) {
               eventUnsupportedProps.push(prop);
             }
           }
         });
         
-        if (eventSupportedProps.length > 0) {
-    xml += `
+        // Always return 200 OK block with essential properties
+        xml += `
     <${davPrefix}:propstat>
       <${davPrefix}:prop>`;
           
-          if (eventSupportedProps.includes('getetag')) {
-            xml += `
+          // CRITICAL: Always include getetag for events (required for caching)
+          xml += `
         <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
-          }
-          if (eventSupportedProps.includes('getcontenttype')) {
+          
+          // CRITICAL: Always include getcontenttype for events
+          xml += `
+        <${davPrefix}:getcontenttype>text/calendar; component=VEVENT</${davPrefix}:getcontenttype>`;
+          
+          // CRITICAL: Include current-user-privilege-set if requested (macOS requirement)
+          // This must be in 200 OK block, not 404, or macOS will think permissions were revoked
+          if (includePrivilegeSet) {
             xml += `
-        <${davPrefix}:getcontenttype>text/calendar; component=vevent</${davPrefix}:getcontenttype>`;
+        <${davPrefix}:current-user-privilege-set>
+          <${davPrefix}:privilege>
+            <${davPrefix}:read/>
+          </${davPrefix}:privilege>
+          <${davPrefix}:privilege>
+            <${davPrefix}:write/>
+          </${davPrefix}:privilege>
+        </${davPrefix}:current-user-privilege-set>`;
           }
           
           xml += `
       </${davPrefix}:prop>
       <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
     </${davPrefix}:propstat>`;
-        }
         
+        // Only include 404 block if there are unsupported properties that were requested
         if (eventUnsupportedProps.length > 0) {
           xml += `
     <${davPrefix}:propstat>
