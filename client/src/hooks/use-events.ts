@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type CreateEventRequest, type UpdateEventRequest } from "@shared/routes";
+import { api, buildUrl } from "@shared/routes";
+import { type CreateEventRequest, type UpdateEventRequest } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
 interface UseEventsOptions {
@@ -41,7 +42,7 @@ export function useCreateEvent() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: CreateEventRequest) => {
+    mutationFn: async (data: { title: string; calendarId: number; startTime: string | Date; endTime: string | Date; description?: string | null; color?: string | null; location?: string | null }) => {
       // Ensure dates are ISO strings if not handled by Zod correctly during serialization
       const payload = {
         ...data,
@@ -77,13 +78,13 @@ export function useUpdateEvent() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async ({ id, ...updates }: { id: number } & UpdateEventRequest) => {
+    mutationFn: async ({ id, ...updates }: { id: number } & Partial<{ startTime: string | Date; endTime: string | Date; title: string; calendarId: number; description: string | null; color: string | null; location: string | null }>) => {
       const url = buildUrl(api.events.update.path, { id });
       
       // Ensure dates are strings for transport
-      const payload = { ...updates };
-      if (payload.startTime) payload.startTime = new Date(payload.startTime).toISOString();
-      if (payload.endTime) payload.endTime = new Date(payload.endTime).toISOString();
+      const payload: Record<string, unknown> = { ...updates };
+      if (payload.startTime) payload.startTime = new Date(payload.startTime as string | Date).toISOString();
+      if (payload.endTime) payload.endTime = new Date(payload.endTime as string | Date).toISOString();
 
       const res = await fetch(url, {
         method: api.events.update.method,

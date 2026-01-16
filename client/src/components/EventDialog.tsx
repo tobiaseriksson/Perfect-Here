@@ -59,7 +59,7 @@ export function EventDialog({ isOpen, onClose, selectedDate, eventToEdit }: Even
     if (isOpen) {
       if (eventToEdit) {
         form.reset({
-          ...eventToEdit,
+          title: eventToEdit.title,
           description: eventToEdit.description || "",
           location: eventToEdit.location || "",
           color: eventToEdit.color || "#3b82f6",
