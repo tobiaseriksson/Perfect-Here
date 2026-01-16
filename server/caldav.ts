@@ -103,14 +103,14 @@ router.use((req: Request, res: Response, next: NextFunction) => {
     
     // Log request body if present
     if (req.body && typeof req.body === 'string' && req.body.length > 0) {
-      logLine += ` :: reqBody=${req.body.replace(/\n/g, ' ')}`;
+      logLine += ` :: reqBody=${req.body}`;
     }
     
     // Log response body if present
     if (responseBody && responseBody.length > 0) {
       // Truncate very long response bodies (limit to first 1000 chars)
       const responsePreview = responseBody;
-      logLine += ` :: resBody=${responsePreview.replace(/\n/g, ' ')}`;
+      logLine += ` :: resBody=${responseBody}`;
     }
     
     console.log(logLine);
