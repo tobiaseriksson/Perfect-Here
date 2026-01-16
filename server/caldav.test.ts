@@ -306,4 +306,41 @@ describe("CalDAV Protocol Tests - Thunderbird Compatibility", () => {
       expect(body).toContain("</D:resourcetype>");
     });
   });
+
+  describe("Test Case 3: PROPPATCH for APPLE:calendar-order", () => {
+    it("should return 200 OK for APPLE:calendar-order (accept as no-op)", async () => {
+      const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<A:propertyupdate xmlns:A="DAV:" xmlns:D="http://apple.com/ns/ical/">
+  <A:set>
+    <A:prop>
+      <D:calendar-order>1</D:calendar-order>
+    </A:prop>
+  </A:set>
+</A:propertyupdate>`;
+
+      const response = await request(app)
+        .proppatch("/caldav/calendars/1/")
+        .set("Authorization", basicAuth("cal_1", "testpassword123"))
+        .set("Content-Type", "text/xml; charset=utf-8")
+        .send(requestBody);
+
+      expect(response.status).toBe(207);
+      expect(response.headers["content-type"]).toMatch(/application\/xml/);
+
+      const body = response.text;
+
+      // Verify XML structure
+      expect(body).toContain('<?xml version="1.0" encoding="utf-8"?>');
+      expect(body).toContain("<A:multistatus");
+      expect(body).toContain('xmlns:A="DAV:"');
+      expect(body).toContain('xmlns:APPLE="http://apple.com/ns/ical/"');
+
+      // CRITICAL: Must return 200 OK for calendar-order (not 403 Forbidden)
+      expect(body).toContain("<APPLE:calendar-order");
+      expect(body).toContain("<A:status>HTTP/1.1 200 OK</A:status>");
+
+      // Must NOT contain 403 Forbidden
+      expect(body).not.toContain("403 Forbidden");
+    });
+  });
 });

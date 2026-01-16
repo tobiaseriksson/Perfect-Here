@@ -1479,15 +1479,16 @@ END:VCALENDAR</C:calendar-data>
     }
     
     // Separate supported and unsupported properties
-    // We don't support Apple's calendar-order extension
+    // Accept (but ignore) Apple's calendar-order extension - return 200 OK as no-op
     const supportedProps: typeof properties = [];
     const unsupportedProps: typeof properties = [];
     
     properties.forEach(prop => {
       if (prop.namespace === 'http://apple.com/ns/ical/' && prop.name === 'calendar-order') {
-        unsupportedProps.push(prop);
+        // Accept calendar-order as a no-op (return 200 OK for macOS compatibility)
+        supportedProps.push(prop);
       } else {
-        // For now, we don't support any property updates
+        // For now, we don't support any other property updates
         // You can add support for other properties here in the future
         unsupportedProps.push(prop);
       }
@@ -1535,7 +1536,7 @@ END:VCALENDAR</C:calendar-data>
     </${davPrefix}:propstat>`;
     }
     
-    // Echo back unsupported properties (403 Forbidden for calendar-order)
+    // Echo back unsupported properties (403 Forbidden)
     if (unsupportedProps.length > 0) {
       xml += `
     <${davPrefix}:propstat>
