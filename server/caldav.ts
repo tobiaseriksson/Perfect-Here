@@ -1322,19 +1322,24 @@ END:VCALENDAR</C:calendar-data>
           
           // CRITICAL: Build prop content ensuring proper XML structure
           // Order matters: getetag must come before calendar-data
-          let propContent = '';
+          // Build XML carefully to avoid corruption from nested template literals
+          xml += `
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>`;
+          
+          // CRITICAL: Always output getetag FIRST if it should be included
+          // This ensures Thunderbird can cache the event properly
           if (includeGetetag) {
-            propContent += `
+            xml += `
         <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
           }
+          // CRITICAL: Always output calendar-data if requested
           if (includeCalendarData) {
-            propContent += `
+            xml += `
         <${caldavPropPrefix}:calendar-data><![CDATA[${eventIcs}]]></${caldavPropPrefix}:calendar-data>`;
           }
           
           xml += `
-    <${davPrefix}:propstat>
-      <${davPrefix}:prop>${propContent}
       </${davPrefix}:prop>
       <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
     </${davPrefix}:propstat>`;
