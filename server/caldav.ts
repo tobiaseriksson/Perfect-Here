@@ -1038,8 +1038,8 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       }
       if (supportedProps.includes('sync-token')) {
         // sync-token should change when content changes, so use ctag
-        xml += `
-        <${davPrefix}:sync-token>urn:uuid:${calendarId}-${ctag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
+        // xml += `<${davPrefix}:sync-token>urn:uuid:${calendarId}-${ctag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
+        xml += `<${davPrefix}:sync-token>${ctag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
       }
       if (supportedProps.includes('current-user-principal')) {
         // CRITICAL: Use consistent principal URL that matches routing
