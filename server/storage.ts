@@ -73,7 +73,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCalendar(id: number, updates: Partial<InsertCalendar>): Promise<Calendar> {
-    const [updated] = await db.update(calendars).set(updates).where(eq(calendars.id, id)).returning();
+    // CRITICAL: Always update updatedAt timestamp for persistent ETag/CTag
+    const [updated] = await db.update(calendars)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(calendars.id, id))
+      .returning();
     return updated;
   }
 
@@ -153,17 +157,40 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createEvent(event: InsertEvent): Promise<Event> {
+    // CRITICAL: Update calendar's updatedAt when event is created (for CTag)
     const [newEvent] = await db.insert(events).values(event).returning();
+    // Update parent calendar's updatedAt timestamp
+    await db.update(calendars)
+      .set({ updatedAt: new Date() })
+      .where(eq(calendars.id, newEvent.calendarId));
     return newEvent;
   }
 
   async updateEvent(id: number, updates: Partial<InsertEvent>): Promise<Event> {
-    const [updated] = await db.update(events).set(updates).where(eq(events.id, id)).returning();
+    // CRITICAL: Update event's updatedAt and parent calendar's updatedAt (for ETag/CTag)
+    const [updated] = await db.update(events)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(events.id, id))
+      .returning();
+    // Update parent calendar's updatedAt timestamp
+    await db.update(calendars)
+      .set({ updatedAt: new Date() })
+      .where(eq(calendars.id, updated.calendarId));
     return updated;
   }
 
   async deleteEvent(id: number): Promise<void> {
-    await db.delete(events).where(eq(events.id, id));
+    // CRITICAL: Get calendarId before deletion to update calendar's updatedAt
+    const event = await this.getEvent(id);
+    if (event) {
+      await db.delete(events).where(eq(events.id, id));
+      // Update parent calendar's updatedAt timestamp
+      await db.update(calendars)
+        .set({ updatedAt: new Date() })
+        .where(eq(calendars.id, event.calendarId));
+    } else {
+      await db.delete(events).where(eq(events.id, id));
+    }
   }
 
   async getEvent(id: number): Promise<Event | undefined> {

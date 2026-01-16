@@ -529,35 +529,60 @@ function generateFullCalendarICS(calendar: Calendar, events: Event[]): string {
   return ics;
 }
 
-// CRITICAL: Generate ETag/CTag that changes whenever calendar content changes
-// This is essential for macOS refresh detection - if ETag/CTag don't change, macOS won't sync
+// CRITICAL: Generate CTag (Calendar Tag) using persistent timestamp
+// CTag must be stable across server restarts and change only when content changes
+// Uses calendar.updatedAt timestamp which is updated whenever events are added/modified/deleted
+function generateCTag(calendar: Calendar): string {
+  // Use calendar's updatedAt timestamp (persistent in database)
+  // This ensures the CTag is stable across server restarts
+  // The timestamp changes only when events are added/modified/deleted (via storage methods)
+  const timestamp = calendar.updatedAt 
+    ? new Date(calendar.updatedAt).getTime() 
+    : calendar.createdAt 
+      ? new Date(calendar.createdAt).getTime() 
+      : Date.now();
+  
+  // Convert timestamp to hex string for consistent format
+  // Use quotes for "Strong ETag" (RFC 4918)
+  return `"${timestamp.toString(16)}"`;
+}
+
+// Generate ETag for calendar collection (folder)
+// CRITICAL: This must be DIFFERENT from CTag to avoid Thunderbird cache conflicts
+// Collection ETag represents the folder structure, not the content
+// Uses calendar creation time (stable, doesn't change when events change)
+function generateCollectionETag(calendar: Calendar): string {
+  // Use calendar creation time (stable, doesn't change)
+  // This is different from CTag which uses updatedAt
+  const timestamp = calendar.createdAt 
+    ? new Date(calendar.createdAt).getTime() 
+    : Date.now();
+  
+  // Add a prefix to ensure it's different from CTag
+  // Convert to hex and use quotes for "Strong ETag"
+  return `"c${timestamp.toString(16)}"`;
+}
+
+// Generate ETag for individual event resource
+// CRITICAL: Must be stable across server restarts
+// Uses event's updatedAt timestamp (persistent in database)
+function generateEventETag(event: Event): string {
+  // Use event's updatedAt timestamp (persistent in database)
+  // This ensures the ETag is stable across server restarts
+  const timestamp = event.updatedAt 
+    ? new Date(event.updatedAt).getTime() 
+    : event.createdAt 
+      ? new Date(event.createdAt).getTime() 
+      : Date.now();
+  
+  // Format: "event-{id}-{timestamp}" for uniqueness
+  // Use quotes for "Strong ETag" (RFC 4918)
+  return `"event-${event.id}-${timestamp.toString(16)}"`;
+}
+
+// Legacy function name for backward compatibility (now generates CTag)
 function generateEtag(calendar: Calendar, events: Event[]): string {
-  // Include all event IDs and their timestamps to detect any change
-  // This ensures that modifying an event (even if count stays same) changes the ETag
-  const eventData = events.map(e => ({
-    id: e.id,
-    startTime: e.startTime ? new Date(e.startTime).getTime() : 0,
-    createdAt: e.createdAt ? new Date(e.createdAt).getTime() : 0
-  })).sort((a, b) => a.id - b.id); // Sort by ID for consistent ordering
-  
-  const data = JSON.stringify({ 
-    calendarId: calendar.id, 
-    eventCount: events.length,
-    events: eventData,
-    // Include calendar creation time as a base
-    calendarCreated: calendar.createdAt ? new Date(calendar.createdAt).getTime() : 0
-  });
-  
-  // Use a more robust hash function
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  
-  // Return hex string with quotes (RFC 4918 format)
-  return `"${Math.abs(hash).toString(16)}"`;
+  return generateCTag(calendar);
 }
 
 // CRITICAL: OPTIONS handler for capability discovery
@@ -887,8 +912,11 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
   if (method === "PROPFIND") {
     const body = typeof req.body === 'string' ? req.body : '';
     const { requested, originalCase } = parsePropfindProperties(body);
-    const events = await storage.getEvents({ calendarId, userId: undefined });
-    const etag = generateEtag(calendar, events);
+    // CRITICAL: Use persistent timestamps from database for stable ETags/CTags
+    // CTag uses calendar.updatedAt (changes when events change)
+    // Collection ETag uses calendar.createdAt (stable, different from CTag)
+    const ctag = generateCTag(calendar); // Uses calendar.updatedAt - changes when events change
+    const collectionEtag = generateCollectionETag(calendar); // Uses calendar.createdAt - stable
     
     // CRITICAL: Extract DAV namespace prefix from request (macOS uses A: instead of D:)
     const davPrefix = extractDavPrefix(body);
@@ -922,14 +950,14 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     if (requested.has('resourcetype')) {
       supportedProps.push('resourcetype');
     }
-    // CRITICAL: Collections (folders) should NOT return getetag - only individual resources (.ics files) have ETags
-    // Returning getetag for collections causes Thunderbird cache validation conflicts
-    // Move getetag to unsupportedProps for collections
+    // CRITICAL: Collections can return getetag, but it must be DIFFERENT from getctag
+    // getctag changes when events change (for refresh detection)
+    // getetag is stable for the collection structure (prevents cache conflicts)
     if (requested.has('getetag')) {
-      unsupportedProps.push('getetag');
+      supportedProps.push('getetag');
     }
-    // CRITICAL: macOS relies on getctag for calendar refresh detection
-    // Collections should return getctag (Calendar Tag) instead of getetag
+    // CRITICAL: macOS/Thunderbird relies on getctag for calendar refresh detection
+    // getctag MUST change when ANY event is added, modified, or deleted
     if (requested.has('getctag')) {
       supportedProps.push('getctag');
     }
@@ -990,15 +1018,20 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
           <C:calendar/>
         </${davPrefix}:resourcetype>`;
       }
-      // CRITICAL: Collections do NOT return getetag - only getctag
-      // getetag is only for individual resources (.ics files), not collections
+      // CRITICAL: Collection getetag must be DIFFERENT from getctag to avoid cache conflicts
+      // getetag is stable (represents collection structure), getctag changes with content
+      if (supportedProps.includes('getetag')) {
+        xml += `
+        <${davPrefix}:getetag>${collectionEtag}</${davPrefix}:getetag>`;
+      }
       if (supportedProps.includes('displayname')) {
         xml += `
         <${davPrefix}:displayname>${escapeXml(calendar.title)}</${davPrefix}:displayname>`;
       }
       if (supportedProps.includes('sync-token')) {
+        // sync-token should change when content changes, so use ctag
         xml += `
-        <${davPrefix}:sync-token>urn:uuid:${calendarId}-${etag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
+        <${davPrefix}:sync-token>urn:uuid:${calendarId}-${ctag.replace(/"/g, "")}</${davPrefix}:sync-token>`;
       }
       if (supportedProps.includes('current-user-principal')) {
         // CRITICAL: Use consistent principal URL that matches routing
@@ -1061,9 +1094,10 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       }
       
       // CalendarServer properties
+      // CRITICAL: getctag MUST change when events change (for Thunderbird refresh detection)
       if (supportedProps.includes('getctag')) {
         xml += `
-        <CS:getctag>${etag}</CS:getctag>`;
+        <CS:getctag>${ctag}</CS:getctag>`;
       }
       
       xml += `
@@ -1097,8 +1131,11 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
   </${davPrefix}:response>`;
 
     if (depth === "1") {
+      // Fetch events for Depth 1 PROPFIND (list all events in calendar)
+      const events = await storage.getEvents({ calendarId, userId: undefined });
       for (const event of events) {
-        const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+        // CRITICAL: Use persistent ETag from database (stable across restarts)
+        const eventEtag = generateEventETag(event);
         const eventRelativeHref = `${relativeHref}event-${event.id}.ics`;
         
         xml += `
@@ -1270,7 +1307,8 @@ END:VCALENDAR</C:calendar-data>
           // Event exists - return 200 OK with properties
           const event = eventMap.get(eventId)!;
           const eventIcs = generateEventICS(event, calendarId);
-          const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+          // CRITICAL: Use persistent ETag from database (stable across restarts)
+          const eventEtag = generateEventETag(event);
           
           xml += `
     <${davPrefix}:propstat>
@@ -1333,7 +1371,8 @@ END:VCALENDAR</C:calendar-data>
 
     for (const event of events) {
       const eventIcs = generateEventICS(event, calendarId);
-      const eventEtag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+      // CRITICAL: Use persistent ETag from database (stable across restarts)
+      const eventEtag = generateEventETag(event);
         const relativeHref = `/caldav/calendars/${calendarId}/event-${event.id}.ics`;
         
       xml += `
@@ -1885,7 +1924,8 @@ router.get("/calendars/:id/event-:eventId.ics", caldavAuth, async (req: Authenti
   }
 
   const ics = generateEventICS(event, calendar.id);
-  const etag = `"event-${event.id}-${new Date(event.startTime).getTime()}"`;
+  // CRITICAL: Use persistent ETag from database (stable across restarts)
+  const etag = generateEventETag(event);
 
   res.setHeader("Content-Type", "text/calendar; charset=utf-8");
   res.setHeader("ETag", etag);

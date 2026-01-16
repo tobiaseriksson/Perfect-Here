@@ -12,6 +12,7 @@ export const calendars = pgTable("calendars", {
   color: text("color").default("#3b82f6"),
   ownerId: varchar("owner_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const calendarShares = pgTable("calendar_shares", {
@@ -43,6 +44,7 @@ export const events = pgTable("events", {
   recurrence: jsonb("recurrence"), // { freq: 'daily'|'weekly'|'monthly', interval: 1, byDay: ['MO', 'TU'], byMonthDay: 15 }
   createdBy: varchar("created_by").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Relations
