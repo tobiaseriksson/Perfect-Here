@@ -995,6 +995,14 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       supportedProps.push('supported-report-set');
     }
     
+    // Apple CalDAV extensions - calendar-order and calendar-color
+    if (requested.has('calendar-order')) {
+      supportedProps.push('calendar-order');
+    }
+    if (requested.has('calendar-color')) {
+      supportedProps.push('calendar-color');
+    }
+    
     // Add remaining requested properties to unsupportedProps (avoid duplicates)
     requested.forEach(prop => {
       if (!supportedProps.includes(prop) && !unsupportedProps.includes(prop)) {
@@ -1098,6 +1106,22 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
       if (supportedProps.includes('getctag')) {
         xml += `
         <CS:getctag>${ctag}</CS:getctag>`;
+      }
+      
+      // Apple CalDAV extensions (http://apple.com/ns/ical/)
+      // These properties are stored in the database for persistent configuration
+      if (supportedProps.includes('calendar-order')) {
+        const orderValue = calendar.caldavOrder ?? 1;
+        xml += `
+        <APPLE:calendar-order xmlns:APPLE="http://apple.com/ns/ical/">${orderValue}</APPLE:calendar-order>`;
+      }
+      if (supportedProps.includes('calendar-color')) {
+        // Use stored CalDAV color, fallback to UI color, or default
+        const colorValue = calendar.caldavColor || calendar.color || '#3b82f6FF';
+        // Ensure color includes alpha channel (8 hex digits for Apple compatibility)
+        const normalizedColor = colorValue.length === 7 ? colorValue + 'FF' : colorValue;
+        xml += `
+        <APPLE:calendar-color xmlns:APPLE="http://apple.com/ns/ical/">${normalizedColor.toUpperCase()}</APPLE:calendar-color>`;
       }
       
       xml += `
