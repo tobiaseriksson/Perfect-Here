@@ -1479,20 +1479,40 @@ END:VCALENDAR</C:calendar-data>
     }
     
     // Separate supported and unsupported properties
-    // Accept (but ignore) Apple's calendar-order extension - return 200 OK as no-op
+    // Support Apple's calendar-order and calendar-color extensions with persistent storage
     const supportedProps: typeof properties = [];
     const unsupportedProps: typeof properties = [];
     
+    // Track updates to persist
+    const updates: { caldavOrder?: number; caldavColor?: string } = {};
+    
     properties.forEach(prop => {
       if (prop.namespace === 'http://apple.com/ns/ical/' && prop.name === 'calendar-order') {
-        // Accept calendar-order as a no-op (return 200 OK for macOS compatibility)
+        // Parse and store calendar-order value
+        const orderValue = parseInt(prop.value.trim(), 10);
+        if (!isNaN(orderValue)) {
+          updates.caldavOrder = orderValue;
+        }
+        supportedProps.push(prop);
+      } else if (prop.namespace === 'http://apple.com/ns/ical/' && prop.name === 'calendar-color') {
+        // Store calendar-color value (hex color like #FF5733FF or #FF5733)
+        updates.caldavColor = prop.value.trim();
         supportedProps.push(prop);
       } else {
-        // For now, we don't support any other property updates
-        // You can add support for other properties here in the future
+        // Other properties are not supported
         unsupportedProps.push(prop);
       }
     });
+    
+    // Persist supported property changes to database
+    if (Object.keys(updates).length > 0) {
+      try {
+        await storage.updateCalendar(calendarId, updates);
+      } catch (err) {
+        console.error('[caldav] Failed to update calendar properties:', err);
+        // Continue anyway - return 200 OK for compatibility
+      }
+    }
     
     // Build response
     let xml = `<?xml version="1.0" encoding="utf-8"?>
