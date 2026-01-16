@@ -1310,35 +1310,31 @@ END:VCALENDAR</C:calendar-data>
           // CRITICAL: Use persistent ETag from database (stable across restarts)
           const eventEtag = generateEventETag(event);
           
-          xml += `
-    <${davPrefix}:propstat>
-      <${davPrefix}:prop>`;
-          
           // CRITICAL: Always include getetag when calendar-data is returned (required for caching)
           // Thunderbird needs the ETag to cache events - without it, it will re-download forever
-          // MUST include getetag if either:
-          // 1. getetag was explicitly requested, OR
-          // 2. calendar-data is being returned (Thunderbird requires ETag with calendar-data)
           const includeCalendarData = requested.has('calendar-data');
-          // CRITICAL: If calendar-data is requested, we MUST include getetag (Thunderbird requirement)
-          // This prevents infinite download loops where Thunderbird can't cache events
           const includeGetetag = requested.has('getetag') || includeCalendarData;
           
-          // CRITICAL: Always output getetag FIRST if it should be included
-          // This ensures Thunderbird can cache the event properly
+          // CRITICAL: Ensure eventEtag is always a valid string
+          if (!eventEtag || typeof eventEtag !== 'string') {
+            console.error(`[caldav] Invalid eventEtag for event ${event.id}:`, eventEtag);
+          }
+          
+          // CRITICAL: Build prop content ensuring proper XML structure
           // Order matters: getetag must come before calendar-data
-          // CRITICAL: If calendar-data is being returned, getetag MUST be included
-          if (includeGetetag || includeCalendarData) {
-            xml += `
+          let propContent = '';
+          if (includeGetetag) {
+            propContent += `
         <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
           }
-          // CRITICAL: Always output calendar-data if requested
           if (includeCalendarData) {
-            xml += `
+            propContent += `
         <${caldavPropPrefix}:calendar-data><![CDATA[${eventIcs}]]></${caldavPropPrefix}:calendar-data>`;
           }
           
           xml += `
+    <${davPrefix}:propstat>
+      <${davPrefix}:prop>${propContent}
       </${davPrefix}:prop>
       <${davPrefix}:status>HTTP/1.1 200 OK</${davPrefix}:status>
     </${davPrefix}:propstat>`;
