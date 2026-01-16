@@ -367,6 +367,8 @@ function parsePropfindProperties(body: string): { requested: Set<string>; origin
     'getcontenttype': 'getcontenttype',
     'displayname': 'displayname',
     'current-user-principal': 'current-user-principal',
+    'current-user-privilege-set': 'current-user-privilege-set', // Thunderbird requires this for write/sync mode
+    'supported-report-set': 'supported-report-set', // Thunderbird requires this for sync mode
     'owner': 'owner',
     'sync-token': 'sync-token',
     'principal-url': 'principal-url', // macOS Calendar sometimes requests this (case-sensitive: principal-URL)
@@ -845,6 +847,15 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
   res.status(501).send(xmlError(`Method ${method} not implemented`));
 });
 
+// CRITICAL: OPTIONS handler for /calendars/ parent directory
+// Thunderbird checks this to verify DAV compliance and permissions
+router.options("/calendars/", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
+  res.setHeader("Allow", "OPTIONS, GET, HEAD, PROPFIND, REPORT");
+  res.setHeader("DAV", "1, 2, calendar-access, addressbook");
+  res.setHeader("Content-Length", "0");
+  res.status(200).end();
+});
+
 router.options("/calendars/:id", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
   res.setHeader("Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access");
@@ -945,9 +956,17 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     if (requested.has('calendar-home-set')) {
       supportedProps.push('calendar-home-set');
     }
+    // CRITICAL: Thunderbird requires these for write/sync mode
+    if (requested.has('current-user-privilege-set')) {
+      supportedProps.push('current-user-privilege-set');
+    }
+    if (requested.has('supported-report-set')) {
+      supportedProps.push('supported-report-set');
+    }
     
+    // Add remaining requested properties to unsupportedProps (avoid duplicates)
     requested.forEach(prop => {
-      if (!supportedProps.includes(prop)) {
+      if (!supportedProps.includes(prop) && !unsupportedProps.includes(prop)) {
         unsupportedProps.push(prop);
       }
     });
@@ -1008,6 +1027,36 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
         <C:calendar-home-set>
           <${davPrefix}:href>${relativeHref}</${davPrefix}:href>
         </C:calendar-home-set>`;
+      }
+      
+      // CRITICAL: Thunderbird requires current-user-privilege-set for write/sync mode
+      // All privileges must be in a single <D:privilege> element, including D:all
+      if (supportedProps.includes('current-user-privilege-set')) {
+        xml += `
+        <${davPrefix}:current-user-privilege-set>
+          <${davPrefix}:privilege>
+            <${davPrefix}:read/>
+            <${davPrefix}:write/>
+            <${davPrefix}:all/>
+          </${davPrefix}:privilege>
+        </${davPrefix}:current-user-privilege-set>`;
+      }
+      
+      // CRITICAL: Thunderbird requires supported-report-set for sync mode
+      if (supportedProps.includes('supported-report-set')) {
+        xml += `
+        <${davPrefix}:supported-report-set>
+          <${davPrefix}:supported-report>
+            <${davPrefix}:report>
+              <C:calendar-multiget/>
+            </${davPrefix}:report>
+          </${davPrefix}:supported-report>
+          <${davPrefix}:supported-report>
+            <${davPrefix}:report>
+              <C:calendar-query/>
+            </${davPrefix}:report>
+          </${davPrefix}:supported-report>
+        </${davPrefix}:supported-report-set>`;
       }
       
       // CalendarServer properties
@@ -1169,9 +1218,6 @@ END:VCALENDAR</C:calendar-data>
     // Extract namespace prefixes from request to match client's usage
     const { caldavPrefix, csPrefix } = extractNamespacePrefixes(body);
     
-    // CRITICAL: Always include getetag when requested (required for caching)
-    const mustIncludeGetetag = requested.has('getetag');
-    
     // Build namespace declarations - handle prefix conflicts
     // If client uses same prefix for both namespaces, we need to use different ones in response
     let namespaceDecls = `xmlns:${davPrefix}="${DAV_NS}"`;
@@ -1229,8 +1275,10 @@ END:VCALENDAR</C:calendar-data>
     <${davPrefix}:propstat>
       <${davPrefix}:prop>`;
           
-          // CRITICAL: Always include getetag when requested
-          if (mustIncludeGetetag || requested.has('getetag')) {
+          // CRITICAL: Always include getetag when calendar-data is returned (required for caching)
+          // Thunderbird needs the ETag to cache events - without it, it will re-download forever
+          const shouldIncludeGetetag = requested.has('getetag') || requested.has('calendar-data');
+          if (shouldIncludeGetetag) {
             xml += `
         <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
           }
@@ -1296,8 +1344,10 @@ END:VCALENDAR</C:calendar-data>
     <${davPrefix}:propstat>
       <${davPrefix}:prop>`;
         
-        // CRITICAL: Always include getetag when requested
-        if (mustIncludeGetetag || requested.has('getetag')) {
+        // CRITICAL: Always include getetag when calendar-data is returned (required for caching)
+        // Thunderbird needs the ETag to cache events - without it, it will re-download forever
+        const shouldIncludeGetetag = requested.has('getetag') || requested.has('calendar-data');
+        if (shouldIncludeGetetag) {
           xml += `
         <${davPrefix}:getetag>${eventEtag}</${davPrefix}:getetag>`;
         }
