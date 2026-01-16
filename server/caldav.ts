@@ -848,8 +848,11 @@ router.all("/principals/", caldavAuth, async (req: AuthenticatedRequest, res: Re
 });
 
 // CRITICAL: OPTIONS handler for /calendars/ parent directory
-// Thunderbird checks this to verify DAV compliance and permissions
-router.options("/calendars/", caldavAuth, (req: AuthenticatedRequest, res: Response) => {
+// Thunderbird checks this to verify DAV compliance and permissions for auto-discovery
+// This route must come BEFORE /calendars/:id to ensure proper matching
+// Handle both with and without trailing slash for compatibility
+router.options(["/calendars", "/calendars/"], (req: Request, res: Response) => {
+  // OPTIONS for discovery doesn't require authentication (like root OPTIONS)
   res.setHeader("Allow", "OPTIONS, GET, HEAD, PROPFIND, REPORT");
   res.setHeader("DAV", "1, 2, calendar-access, addressbook");
   res.setHeader("Content-Length", "0");
@@ -919,15 +922,15 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     if (requested.has('resourcetype')) {
       supportedProps.push('resourcetype');
     }
+    // CRITICAL: Collections (folders) should NOT return getetag - only individual resources (.ics files) have ETags
+    // Returning getetag for collections causes Thunderbird cache validation conflicts
+    // Move getetag to unsupportedProps for collections
     if (requested.has('getetag')) {
-      supportedProps.push('getetag');
+      unsupportedProps.push('getetag');
     }
     // CRITICAL: macOS relies on getctag for calendar refresh detection
-    // Always include getctag if getetag is requested (or vice versa) for calendar collections
+    // Collections should return getctag (Calendar Tag) instead of getetag
     if (requested.has('getctag')) {
-      supportedProps.push('getctag');
-    } else if (requested.has('getetag')) {
-      // If they request getetag but not getctag, include getctag anyway for macOS compatibility
       supportedProps.push('getctag');
     }
     // CRITICAL: Collections don't have getcontenttype - move to unsupportedProps
@@ -987,10 +990,8 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
           <C:calendar/>
         </${davPrefix}:resourcetype>`;
       }
-      if (supportedProps.includes('getetag')) {
-        xml += `
-        <${davPrefix}:getetag>${etag}</${davPrefix}:getetag>`;
-      }
+      // CRITICAL: Collections do NOT return getetag - only getctag
+      // getetag is only for individual resources (.ics files), not collections
       if (supportedProps.includes('displayname')) {
         xml += `
         <${davPrefix}:displayname>${escapeXml(calendar.title)}</${davPrefix}:displayname>`;
