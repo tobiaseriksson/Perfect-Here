@@ -4,16 +4,9 @@
  * @returns ISO string in UTC (e.g., "2024-12-25T13:00:00Z" for UTC+1 timezone)
  */
 export function datetimeLocalToUTC(datetimeLocal: string): string {
-  // JavaScript interprets datetime-local strings as LOCAL time (not UTC)
-  const localDate = new Date(datetimeLocal);
-  
-  // getTimezoneOffset() returns minutes (negative for timezones ahead of UTC)
-  // For UTC+1: returns -60 minutes = -3600000 ms
-  // To convert local to UTC: subtract the offset
-  const offsetMs = localDate.getTimezoneOffset() * 60000;
-  const utcDate = new Date(localDate.getTime() - offsetMs);
-  
-  return utcDate.toISOString();
+  // new Date() with a string missing a timezone (like from datetime-local) 
+  // is automatically treated as local time. .toISOString() converts it to UTC.
+  return new Date(datetimeLocal).toISOString();
 }
 
 /**
@@ -41,16 +34,10 @@ export function utcToDatetimeLocal(utcDate: Date | string): string {
  */
 export function formatUTCToLocalTime(utcDate: Date | string): string {
   const date = new Date(utcDate);
-  
-  // Get the browser's timezone offset in milliseconds
-  const offset = date.getTimezoneOffset() * 60000;
-  
-  // Convert to local timezone
-  const localDate = new Date(date.getTime() - offset);
-  
-  // Extract hours and minutes
-  const hours = String(localDate.getUTCHours()).padStart(2, "0");
-  const minutes = String(localDate.getUTCMinutes()).padStart(2, "0");
+
+  // Use local getters to get the time in the browser's timezone
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
   
   return `${hours}:${minutes}`;
 }
