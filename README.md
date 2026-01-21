@@ -84,36 +84,46 @@ A modern, glassmorphic calendar application with advanced sharing capabilities. 
 ## Build & Run Instructions
 
 ### Prerequisites
-- Node.js 18+ (or use Replit's built-in Node.js)
+- Node.js 20.20.0+ (or use Replit's built-in Node.js)
 - PostgreSQL (or use Replit's built-in PostgreSQL database)
 - npm or yarn
 
 ### Local Setup
 
-1. **Clone the repository**
+For a clean and isolated development environment, we recommend using a [Node Version Manager (nvm)](https://github.com/nvm-sh/nvm) to manage your Node.js version. This ensures that the project has a consistent environment and that dependencies do not conflict with other projects. When you run `npm install`, all packages are installed locally within the `node_modules` directory of this project, so it will not affect your global setup.
+
+1. **Set up Node.js version**
+   If you have `nvm` installed, run the following commands in the project root to install and use the correct node version:
+   ```bash
+   nvm install
+   nvm use
+   ```
+   If you don't have `nvm`, you can install it from [here](https://github.com/nvm-sh/nvm).
+
+2. **Clone the repository**
    ```bash
    git clone <repository-url>
    cd calendar-sharing-app
    ```
 
-2. **Install dependencies**
+3. **Install dependencies**
    ```bash
    npm install
    ```
 
-3. **Set up environment variables**
+4. **Set up environment variables**
    Create a `.env` file in the root directory with:
    ```env
    DATABASE_URL=postgres://user:password@localhost:5432/calendar_db
    SESSION_SECRET=your-secure-session-secret-here
    ```
 
-4. **Initialize the database**
+5. **Initialize the database**
    ```bash
    npm run db:push
    ```
 
-5. **Start the development server**
+6. **Start the development server**
    ```bash
    npm run dev
    ```
@@ -886,6 +896,39 @@ The application uses a custom color palette with CSS variables defined in `clien
 - Forms are validated using Zod schemas
 - The backend is built with Express.js and uses Drizzle ORM for database operations
 - Authentication is handled via OpenID Connect through Replit Auth
+
+# Mac osx Calendar App 
+The following requests are made when settuping up a new calendar account 
+
+```
+
+12:57:34 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 401 in 1ms :: user=(no auth)
+12:57:34 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 207 in 13ms :: user=cal_1
+12:57:35 PM [caldav] HTTP/1.1 OPTIONS /principals/1/ 401 in 1ms :: user=(no auth)
+12:57:36 PM [caldav] HTTP/1.1 OPTIONS /principals/1/ 200 in 2ms :: user=cal_1
+12:57:36 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 401 in 0ms :: user=(no auth)
+12:57:37 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 207 in 3ms :: user=cal_1
+12:57:38 PM [caldav] HTTP/1.1 OPTIONS /principals/1/ 401 in 1ms :: user=(no auth)
+12:57:38 PM [caldav] HTTP/1.1 OPTIONS /principals/1/ 200 in 3ms :: user=cal_1
+12:57:40 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 401 in 0ms :: user=(no auth)
+12:57:40 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 207 in 4ms :: user=cal_1
+12:57:41 PM [caldav] HTTP/1.1 OPTIONS /calendars/1/ 401 in 1ms :: user=(no auth)
+12:57:41 PM [caldav] HTTP/1.1 OPTIONS /calendars/1/ 200 in 3ms :: user=cal_1
+12:57:42 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 401 in 1ms :: user=(no auth)
+12:57:42 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 207 in 3ms :: user=cal_1
+12:57:43 PM [caldav] HTTP/1.1 PROPPATCH /calendars/1/ 401 in 1ms :: user=(no auth)
+12:57:43 PM [caldav] HTTP/1.1 PROPPATCH /calendars/1/ 207 in 3ms :: user=cal_1
+12:57:44 PM [caldav] HTTP/1.1 PROPFIND /principals/1/ 401 in 1ms :: user=(no auth)
+12:57:44 PM [caldav] HTTP/1.1 PROPFIND /principals/1/ 207 in 2ms :: user=cal_1
+12:57:45 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 401 in 1ms :: user=(no auth)
+12:57:46 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 207 in 3ms :: user=cal_1
+12:57:46 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 401 in 0ms :: user=(no auth)
+12:57:47 PM [caldav] HTTP/1.1 PROPFIND /calendars/1/ 207 in 3ms :: user=cal_1
+12:57:47 PM [caldav] HTTP/1.1 REPORT /calendars/1/ 401 in 0ms :: user=(no auth)
+12:57:48 PM [caldav] HTTP/1.1 REPORT /calendars/1/ 207 in 4ms :: user=cal_1
+
+```
+
 
 ## License
 

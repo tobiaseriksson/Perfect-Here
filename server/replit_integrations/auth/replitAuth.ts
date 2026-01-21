@@ -10,9 +10,13 @@ import { authStorage } from "./storage";
 
 const getOidcConfig = memoize(
   async () => {
+    const issuerUrl = process.env.ISSUER_URL ?? "https://replit.com/oidc";
+    const clientId = process.env.REPL_ID || process.env.CLIENT_ID!;
+    console.log(`Using issuer URL: ${issuerUrl}, client ID: ${clientId}`);
     return await client.discovery(
-      new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
-      process.env.REPL_ID!
+      new URL(issuerUrl),
+      clientId,
+      process.env.REPL_ID ? undefined : process.env.CLIENT_SECRET
     );
   },
   { maxAge: 3600 * 1000 }
@@ -34,7 +38,7 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production" || !!process.env.REPL_ID,
       maxAge: sessionTtl,
     },
   });
@@ -54,9 +58,9 @@ async function upsertUser(claims: any) {
   await authStorage.upsertUser({
     id: claims["sub"],
     email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
-    profileImageUrl: claims["profile_image_url"],
+    firstName: claims["given_name"] || claims["first_name"] || "",
+    lastName: claims["family_name"] || claims["last_name"] || "",
+    profileImageUrl: claims["picture"] || claims["profile_image_url"] || "",
   });
 }
 
@@ -89,8 +93,10 @@ export async function setupAuth(app: Express) {
         {
           name: strategyName,
           config,
-          scope: "openid email profile offline_access",
-          callbackURL: `https://${domain}/api/callback`,
+          scope: process.env.REPL_ID
+            ? "openid email profile offline_access"
+            : "openid email profile",
+          callbackURL: process.env.OAUTH_REDIRECT_URI || `https://${domain}/api/callback`,
         },
         verify
       );
@@ -104,10 +110,19 @@ export async function setupAuth(app: Express) {
 
   app.get("/api/login", (req, res, next) => {
     ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      prompt: "login consent",
-      scope: ["openid", "email", "profile", "offline_access"],
-    })(req, res, next);
+    const authOptions: any = {
+      prompt: process.env.REPL_ID ? "login consent" : "select_account",
+      scope: process.env.REPL_ID
+        ? ["openid", "email", "profile", "offline_access"]
+        : ["openid", "email", "profile"],
+    };
+
+    // Google specific: request refresh token via access_type parameter
+    if (!process.env.REPL_ID) {
+      authOptions.access_type = "offline";
+    }
+
+    passport.authenticate(`replitauth:${req.hostname}`, authOptions)(req, res, next);
   });
 
   app.get("/api/callback", (req, res, next) => {
@@ -120,10 +135,11 @@ export async function setupAuth(app: Express) {
 
   app.get("/api/logout", (req, res) => {
     req.logout(() => {
+      const clientId = process.env.REPL_ID || process.env.CLIENT_ID!;
       res.redirect(
         client.buildEndSessionUrl(config, {
-          client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
+          client_id: clientId,
+          post_logout_redirect_uri: process.env.APP_URL || `${req.protocol}://${req.hostname}`,
         }).href
       );
     });
