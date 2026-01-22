@@ -45,7 +45,8 @@ export async function registerRoutes(
   // Calendars
   app.get(api.calendars.list.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
-    let calendars = await storage.getCalendars(userId);
+    const userEmail = (req.user as any).claims.email;
+    let calendars = await storage.getCalendars(userId, userEmail);
 
     if (calendars.length === 0) {
       // Create default calendar
@@ -257,13 +258,15 @@ export async function registerRoutes(
   // Events
   app.get(api.events.list.path, isAuthenticated, async (req, res) => {
     const userId = (req.user as any).claims.sub;
+    const userEmail = (req.user as any).claims.email;
     const input = api.events.list.input.optional().parse(req.query); // Parse query params
 
     const events = await storage.getEvents({
       calendarId: input?.calendarId,
       startDate: input?.startDate ? new Date(input.startDate) : undefined,
       endDate: input?.endDate ? new Date(input.endDate) : undefined,
-      userId // If calendarId is null, this will fetch all accessible events
+      userId, // If calendarId is null, this will fetch all accessible events
+      email: userEmail
     });
     res.json(events);
   });

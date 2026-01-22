@@ -11,7 +11,7 @@ import { eq, and, or, gte, lte } from "drizzle-orm";
 
 export interface IStorage {
   // Calendars
-  getCalendars(userId: string): Promise<(Calendar & { role: string })[]>;
+  getCalendars(userId: string, email?: string): Promise<(Calendar & { role: string })[]>;
   createCalendar(calendar: InsertCalendar): Promise<Calendar>;
   getCalendar(id: number): Promise<Calendar | undefined>;
   updateCalendar(id: number, updates: Partial<InsertCalendar>): Promise<Calendar>;
@@ -31,7 +31,7 @@ export interface IStorage {
   deleteCaldavShare(calendarId: number): Promise<void>;
 
   // Events
-  getEvents(params: { calendarId?: number, startDate?: Date, endDate?: Date, userId?: string }): Promise<Event[]>;
+  getEvents(params: { calendarId?: number, startDate?: Date, endDate?: Date, userId?: string, email?: string }): Promise<Event[]>;
   createEvent(event: InsertEvent): Promise<Event>;
   updateEvent(id: number, updates: Partial<InsertEvent>): Promise<Event>;
   deleteEvent(id: number): Promise<void>;
@@ -39,27 +39,42 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  async getCalendars(userId: string): Promise<(Calendar & { role: string })[]> {
+  async getCalendars(userId: string, email?: string): Promise<(Calendar & { role: string })[]> {
     // Get owned calendars
     const owned = await db.select().from(calendars).where(eq(calendars.ownerId, userId));
     const ownedWithRole = owned.map(c => ({ ...c, role: 'owner' }));
 
     // Get shared calendars
-    const shared = await db
+    let sharedQuery = db
       .select({
         calendar: calendars,
         share: calendarShares
       })
       .from(calendarShares)
-      .innerJoin(calendars, eq(calendarShares.calendarId, calendars.id))
-      .where(eq(calendarShares.userId, userId));
+      .innerJoin(calendars, eq(calendarShares.calendarId, calendars.id));
+
+    const sharedConditions = [eq(calendarShares.userId, userId)];
+    if (email) {
+      sharedConditions.push(eq(calendarShares.email, email));
+    }
+
+    const shared = await sharedQuery.where(or(...sharedConditions));
 
     const sharedWithRole = shared.map(({ calendar, share }) => ({
       ...calendar,
       role: share.role
     }));
 
-    return [...ownedWithRole, ...sharedWithRole];
+    // Deduplicate calendars (a user might be shared by both ID and email)
+    const allCalendars = new Map<number, Calendar & { role: string }>();
+    ownedWithRole.forEach(c => allCalendars.set(c.id, c));
+    sharedWithRole.forEach(c => {
+      if (!allCalendars.has(c.id)) {
+        allCalendars.set(c.id, c);
+      }
+    });
+
+    return Array.from(allCalendars.values());
   }
 
   async createCalendar(calendar: InsertCalendar): Promise<Calendar> {
@@ -133,14 +148,14 @@ export class DatabaseStorage implements IStorage {
     await db.delete(caldavShares).where(eq(caldavShares.calendarId, calendarId));
   }
 
-  async getEvents(params: { calendarId?: number, startDate?: Date, endDate?: Date, userId?: string }): Promise<Event[]> {
+  async getEvents(params: { calendarId?: number, startDate?: Date, endDate?: Date, userId?: string, email?: string }): Promise<Event[]> {
     let conditions = [];
 
     if (params.calendarId) {
       conditions.push(eq(events.calendarId, params.calendarId));
     } else if (params.userId) {
       // If no specific calendar requested, get all events from calendars the user has access to
-      const userCalendars = await this.getCalendars(params.userId);
+      const userCalendars = await this.getCalendars(params.userId, params.email);
       const calendarIds = userCalendars.map(c => c.id);
       if (calendarIds.length === 0) return [];
       conditions.push(or(...calendarIds.map(id => eq(events.calendarId, id))));
