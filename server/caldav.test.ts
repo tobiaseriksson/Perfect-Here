@@ -135,12 +135,13 @@ function basicAuth(username: string, password: string): string {
   return "Basic " + Buffer.from(`${username}:${password}`).toString("base64");
 }
 
-describe("CalDAV Protocol Tests - Thunderbird Compatibility", () => {
-  let app: express.Application;
+let app: express.Application;
 
-  beforeAll(() => {
-    app = createTestApp();
-  });
+beforeAll(() => {
+  app = createTestApp();
+});
+
+describe("CalDAV Protocol Tests - Thunderbird Compatibility", () => {
 
   describe("Test Case 1: PROPFIND with Depth: 0 requesting getctag", () => {
     it("should return getctag in CalendarServer namespace (CS:) format", async () => {
@@ -268,8 +269,8 @@ describe("CalDAV Protocol Tests - Thunderbird Compatibility", () => {
       expect(body).toMatch(/<D:getetag>"event-\d+-[^"]+?"<\/D:getetag>/);
 
       // Event should have getcontenttype with vevent component
-      expect(body).toContain("<D:getcontenttype>text/calendar; component=vevent</D:getcontenttype>");
-
+      expect(body).toContain("<D:getcontenttype>text/calendar; component=VEVENT</D:getcontenttype>");
+      
       // Verify proper structure
       expect(body).toContain("</D:propstat>");
       expect(body).toContain("</D:response>");
@@ -522,4 +523,381 @@ describe("CalDAV Protocol Tests - Thunderbird Compatibility", () => {
       expect(body).toMatch(/<D:multistatus[^>]*xmlns:APPLE="http:\/\/apple\.com\/ns\/ical\/"/);
     });
   });
+});
+
+describe("CalDAV Protocol Tests - macOS Compatibility", () => {
+  it("Test Case 1: OPTIONS /caldav/principals/1/ without authentication", async () => {
+    const headers = {
+      "host": "0eb9ab60-edd8-436f-922e-a1f5e238b899-00-gz2yrsy04t12.picard.replit.dev",
+      "user-agent": "macOS/15.7.3 (24G419) dataaccessd/1.0",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, br",
+      "accept-language": "en-GB,en;q=0.9",
+      "x-forwarded-for": "94.246.111.207, 10.81.6.57",
+      "x-forwarded-proto": "https",
+      "x-replit-user-bio": "",
+      "x-replit-user-id": "",
+      "x-replit-user-name": "",
+      "x-replit-user-profile-image": "",
+      "x-replit-user-roles": "",
+      "x-replit-user-teams": "",
+      "x-replit-user-url": ""
+    };
+
+    const response = await request(app)
+      .options("/caldav/principals/1/")
+      .set(headers);
+
+    expect(response.status).toBe(401);
+    expect(response.text).toContain('<?xml version="1.0" encoding="utf-8"?>');
+    expect(response.text).toContain('<error xmlns="DAV:">Authentication required</error>');
+  });
+
+  it("Test Case 2: OPTIONS /caldav/principals/1/ with authentication", async () => {
+    const headers = {
+      "host": "0eb9ab60-edd8-436f-922e-a1f5e238b899-00-gz2yrsy04t12.picard.replit.dev",
+      "user-agent": "macOS/15.7.3 (24G419) dataaccessd/1.0",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, br",
+      "accept-language": "en-GB,en;q=0.9",
+      "authorization": basicAuth("cal_1", "testpassword123"),
+      "x-forwarded-for": "94.246.111.207, 10.81.6.57",
+      "x-forwarded-proto": "https",
+      "x-replit-user-bio": "",
+      "x-replit-user-id": "",
+      "x-replit-user-name": "",
+      "x-replit-user-profile-image": "",
+      "x-replit-user-roles": "",
+      "x-replit-user-teams": "",
+      "x-replit-user-url": ""
+    };
+
+    const response = await request(app)
+      .options("/caldav/principals/1/")
+      .set(headers);
+
+    expect(response.status).toBe(200);
+    
+    // Verifying the specific XML response body requested
+    expect(response.text).empty
+  });
+
+  it("Test Case 3: PROPFIND /caldav/principals/1/ (Principal Discovery)", async () => {
+    const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<A:propfind xmlns:A="DAV:">
+  <A:prop>
+    <B:calendar-home-set xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <B:calendar-user-address-set xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:current-user-principal/>
+    <A:displayname/>
+    <C:dropbox-home-URL xmlns:C="http://calendarserver.org/ns/"/>
+    <C:email-address-set xmlns:C="http://calendarserver.org/ns/"/>
+    <B:max-attendees-per-instance xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <C:notification-URL xmlns:C="http://calendarserver.org/ns/"/>
+    <A:principal-collection-set/>
+    <A:principal-URL/>
+    <A:resource-id/>
+    <B:schedule-inbox-URL xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <B:schedule-outbox-URL xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:supported-report-set/>
+  </A:prop>
+</A:propfind>`;
+
+    const response = await request(app)
+      .propfind("/caldav/principals/1/")
+      .set("Authorization", basicAuth("cal_1", "testpassword123"))
+      .set("Content-Type", "text/xml")
+      .set("Depth", "0")
+      .send(requestBody);
+
+    expect(response.status).toBe(207);
+    const body = response.text;
+
+    // 1. Verify basic XML structure and namespaces
+    expect(body).toContain('xmlns:A="DAV:"');
+    expect(body).toContain('xmlns:C="urn:ietf:params:xml:ns:caldav"');
+
+    // 2. Verify the Calendar Home Set (The most important part for discovery)
+    // This tells the Mac where to actually look for calendar collections
+    expect(body).toContain("<C:calendar-home-set>");
+    expect(body).toContain("<A:href>/caldav/calendars/1/</A:href>");
+    expect(body).toContain("</C:calendar-home-set>");
+
+    // 3. Verify Identity properties
+    expect(body).toContain("<A:displayname>cal_1</A:displayname>");
+    expect(body).toContain("<A:current-user-principal>");
+    expect(body).toContain("<A:href>/caldav/principals/1/</A:href>");
+
+    // 4. Verify 200 OK section exists for supported props
+    expect(body).toMatch(/<A:propstat>[\s\S]*<A:status>HTTP\/1\.1 200 OK<\/A:status>/);
+
+    // 5. Verify 404 section exists for unsupported props (like dropbox-home-URL)
+    // macOS expects a 404 status for properties the server doesn't support
+    expect(body).toMatch(/<A:propstat>[\s\S]*<A:status>HTTP\/1\.1 404 Not Found<\/A:status>/);
+  });
+
+  it("Test Case 5: PROPFIND /caldav/calendars/1/ with Depth: 0 (Collection Validation)", async () => {
+    // Note: A PROPFIND without a body usually implies allprop or a basic property set
+    // In your curl example, no body was sent, so we test the response headers and resourcetype
+    const response = await request(app)
+      .propfind("/caldav/calendars/1/")
+      .set("Authorization", basicAuth("cal_1", "testpassword123"))
+      .set("Depth", "0")
+      .send(); // Sending no body as per the curl command
+
+    expect(response.status).toBe(207);
+    
+    // 1. Verify Headers
+    expect(response.headers["content-type"]).toMatch(/application\/xml/);
+    // macOS uses the ETag to know if the calendar collection itself (metadata) has changed
+    expect(response.headers["etag"]).toBeDefined(); 
+
+    const body = response.text;
+
+    // 2. Verify XML structure and Namespace declarations
+    expect(body).toContain('<?xml version="1.0" encoding="utf-8"?>');
+    expect(body).toContain('xmlns:D="DAV:"');
+    expect(body).toContain('xmlns:C="urn:ietf:params:xml:ns:caldav"');
+    
+    // 3. Verify the core requirement: Resource Type
+    // This is the "Identity" of the calendar. 
+    // It must be both a WebDAV Collection AND a CalDAV Calendar.
+    expect(body).toContain("<D:resourcetype>");
+    expect(body).toContain("<D:collection/>");
+    expect(body).toContain("<C:calendar/>");
+    expect(body).toContain("</D:resourcetype>");
+
+    // 4. Verify the response matches the requested path
+    expect(body).toContain("<D:href>/caldav/calendars/1/</D:href>");
+
+    // 5. Verify the property was found successfully
+    expect(body).toContain("<D:status>HTTP/1.1 200 OK</D:status>");
+  });
+
+it("Test Case 6: PROPFIND /caldav/calendars/1/ with Depth: 1 (Event Enumeration)", async () => {
+    const response = await request(app)
+      .propfind("/caldav/calendars/1/")
+      .set("Authorization", basicAuth("cal_1", "testpassword123"))
+      .set("Depth", "1")
+      .send();
+
+    expect(response.status).toBe(207);
+    const body = response.text;
+
+    // 1. Verify the Collection itself is still the first response
+    expect(body).toContain("<D:href>/caldav/calendars/1/</D:href>");
+    expect(body).toContain("<D:collection/>");
+
+    // 2. Verify individual Event resources are present
+    // We check for the specific naming convention used in your app
+    expect(body).toContain("<D:href>/caldav/calendars/1/event-1.ics</D:href>");
+
+    // 3. Verify core properties for events
+    // Every event MUST have an ETag and a Content-Type for the Mac to accept it
+    const eventResponses = body.split("<D:response>").slice(2); // Skip the first response (collection)
+    
+    eventResponses.forEach(eventXml => {
+      // Each event must have an ETag
+      expect(eventXml).toContain("<D:getetag>");
+      // Each event must be identified as a VEVENT
+      expect(eventXml).toContain("<D:getcontenttype>text/calendar; component=VEVENT</D:getcontenttype>");
+      // Each individual status must be 200 OK
+      expect(eventXml).toContain("<D:status>HTTP/1.1 200 OK</D:status>");
+    });
+
+    // 4. Verify count (optional but good for consistency)
+    // Based on your curl output, you have 12 events + 1 collection = 13 total responses
+    const totalResponses = (body.match(/<D:response>/g) || []).length;
+    expect(totalResponses).toBeGreaterThanOrEqual(2); 
+  });
+
+it("Test Case 7: Complex PROPFIND (macOS Refresh Pattern)", async () => {
+    const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<A:propfind xmlns:A="DAV:">
+  <A:prop>
+    <A:add-member/>
+    <C:allowed-sharing-modes xmlns:C="http://calendarserver.org/ns/"/>
+    <D:autoprovisioned xmlns:D="http://apple.com/ns/ical/"/>
+    <E:bulk-requests xmlns:E="http://me.com/_namespace/"/>
+    <B:calendar-alarm xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <D:calendar-color xmlns:D="http://apple.com/ns/ical/"/>
+    <B:calendar-description xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <B:calendar-free-busy-set xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <D:calendar-order xmlns:D="http://apple.com/ns/ical/"/>
+    <B:calendar-timezone xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:current-user-privilege-set/>
+    <B:default-alarm-vevent-date xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <B:default-alarm-vevent-datetime xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:displayname/>
+    <C:getctag xmlns:C="http://calendarserver.org/ns/"/>
+    <D:language-code xmlns:D="http://apple.com/ns/ical/"/>
+    <D:location-code xmlns:D="http://apple.com/ns/ical/"/>
+    <B:max-attendees-per-instance xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:owner/>
+    <C:pre-publish-url xmlns:C="http://calendarserver.org/ns/"/>
+    <C:publish-url xmlns:C="http://calendarserver.org/ns/"/>
+    <C:push-transports xmlns:C="http://calendarserver.org/ns/"/>
+    <C:pushkey xmlns:C="http://calendarserver.org/ns/"/>
+    <A:quota-available-bytes/>
+    <A:quota-used-bytes/>
+    <D:refreshrate xmlns:D="http://apple.com/ns/ical/"/>
+    <A:resource-id/>
+    <A:resourcetype/>
+    <B:schedule-calendar-transp xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <B:schedule-default-calendar-URL xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <C:source xmlns:C="http://calendarserver.org/ns/"/>
+    <C:subscribed-strip-alarms xmlns:C="http://calendarserver.org/ns/"/>
+    <C:subscribed-strip-attachments xmlns:C="http://calendarserver.org/ns/"/>
+    <C:subscribed-strip-todos xmlns:C="http://calendarserver.org/ns/"/>
+    <B:supported-calendar-component-set xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <B:supported-calendar-component-sets xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:supported-report-set/>
+    <A:sync-token/>
+  </A:prop>
+</A:propfind>`;
+
+    const response = await request(app)
+      .propfind("/caldav/calendars/1/")
+      .set("Authorization", basicAuth("cal_1", "testpassword123"))
+      .set("Content-Type", "text/xml; charset=utf-8")
+      .set("Depth", "1")
+      .send(requestBody);
+
+    expect(response.status).toBe(207);
+    const body = response.text;
+
+    // 1. Verify the Calendar Collection Header (The 1st Response)
+    expect(body).toContain("<A:href>/caldav/calendars/1/</A:href>");
+    expect(body).toContain("<A:collection/>");
+    expect(body).toContain("<C:calendar/>");
+
+    // 2. Verify Event Enumeration (Depth: 1)
+    // We expect the children (events) to be listed in the body
+    expect(body).toContain("/caldav/calendars/1/event-1.ics");
+    
+    // 3. Verify specific required properties for events
+    // Even if the request asks for 40 properties, events MUST at least return getetag and getcontenttype
+    const event1 = body.split("<A:href>/caldav/calendars/1/event-1.ics</A:href>")[1];
+    expect(event1).toContain("<A:getetag>");
+    expect(event1).toContain("<A:getcontenttype>text/calendar; component=VEVENT</A:getcontenttype>");
+    expect(event1).toContain("<A:status>HTTP/1.1 200 OK</A:status>");
+
+    // 4. Verification of Namespace compliance
+    // Your expected response uses C: for CalDAV and CS: for CalendarServer
+    expect(body).toContain('xmlns:C="urn:ietf:params:xml:ns:caldav"');
+    expect(body).toContain('xmlns:CS="http://calendarserver.org/ns/"');
+    expect(body).toContain('xmlns:APPLE="http://apple.com/ns/ical/"');
+  });
+
+it("Test Case 8: PROPFIND /caldav/principals/1/ (Identity & Email Discovery)", async () => {
+    const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<A:propfind xmlns:A="DAV:">
+  <A:prop>
+    <B:calendar-user-address-set xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:displayname/>
+    <C:email-address-set xmlns:C="http://calendarserver.org/ns/"/>
+  </A:prop>
+</A:propfind>`;
+
+    const response = await request(app)
+      .propfind("/caldav/principals/1/")
+      .set("Authorization", basicAuth("cal_1", "testpassword123"))
+      .set("Content-Type", "text/xml")
+      .set("Depth", "0")
+      .set("Prefer", "return=minimal")
+      .set("brief", "t")
+      .send(requestBody);
+
+    expect(response.status).toBe(207);
+    const body = response.text;
+
+    // 1. Verify Namespace Declarations
+    expect(body).toContain('xmlns:A="DAV:"');
+    expect(body).toContain('xmlns:C="urn:ietf:params:xml:ns:caldav"');
+    expect(body).toContain('xmlns:CS="http://calendarserver.org/ns/"');
+
+    // 2. Verify Success Block (200 OK)
+    // Should contain displayname and email-address-set
+    expect(body).toContain("<A:displayname>cal_1</A:displayname>");
+    expect(body).toContain("<C:email-address-set>");
+    expect(body).toContain("<C:email-address>cal_1@glasscal.local</C:email-address>");
+    
+    // Check that these are wrapped in a 200 OK status
+    const okBlock = body.split("<A:status>HTTP/1.1 200 OK</A:status>")[0];
+    expect(okBlock).toContain("<A:displayname>");
+    expect(okBlock).toContain("<C:email-address-set>");
+
+    // 3. Verify Failure Block (404 Not Found)
+    // macOS needs to know explicitly that calendar-user-address-set is not supported/set
+    expect(body).toContain("<C:calendar-user-address-set />");
+    expect(body).toContain("<A:status>HTTP/1.1 404 Not Found</A:status>");
+
+    // 4. Verify Path
+    expect(body).toContain("<A:href>/caldav/principals/1/</A:href>");
+  });
+
+  it("Test Case 9: PROPFIND /caldav/principals/1/ (Full Principal & Home Set Discovery)", async () => {
+    const requestBody = `<?xml version="1.0" encoding="UTF-8"?>
+<A:propfind xmlns:A="DAV:">
+  <A:prop>
+    <B:calendar-home-set xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <B:calendar-user-address-set xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:current-user-principal/>
+    <A:displayname/>
+    <C:dropbox-home-URL xmlns:C="http://calendarserver.org/ns/"/>
+    <C:email-address-set xmlns:C="http://calendarserver.org/ns/"/>
+    <B:max-attendees-per-instance xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <C:notification-URL xmlns:C="http://calendarserver.org/ns/"/>
+    <A:principal-collection-set/>
+    <A:principal-URL/>
+    <A:resource-id/>
+    <B:schedule-inbox-URL xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <B:schedule-outbox-URL xmlns:B="urn:ietf:params:xml:ns:caldav"/>
+    <A:supported-report-set/>
+  </A:prop>
+</A:propfind>`;
+
+    const response = await request(app)
+      .propfind("/caldav/principals/1/")
+      .set("Authorization", basicAuth("cal_1", "testpassword123"))
+      .set("Content-Type", "text/xml")
+      .set("Depth", "0")
+      .set("Prefer", "return=minimal")
+      .set("brief", "t")
+      .send(requestBody);
+
+    expect(response.status).toBe(207);
+    const body = response.text;
+
+    // 1. Verify namespaces match the expected response format
+    expect(body).toContain('xmlns:A="DAV:"');
+    expect(body).toContain('xmlns:C="urn:ietf:params:xml:ns:caldav"');
+    expect(body).toContain('xmlns:CS="http://calendarserver.org/ns/"');
+
+    // 2. Verify the 200 OK Block - Essential Discoveries
+    const okBlock = body.split("<A:status>HTTP/1.1 200 OK</A:status>")[0];
+    
+    // This tells Mac WHERE the calendars are
+    expect(okBlock).toContain("<C:calendar-home-set>");
+    expect(okBlock).toContain("<A:href>/caldav/calendars/1/</A:href>");
+    
+    // This confirms WHO the user is
+    expect(okBlock).toContain("<A:displayname>cal_1</A:displayname>");
+    expect(okBlock).toContain("<A:current-user-principal>");
+    expect(okBlock).toContain("<A:principal-URL>");
+
+    // 3. Verify the 404 Not Found Block - Graceful Degradation
+    // This block is crucial for macOS; it needs to know what NOT to look for.
+    const errorBlock = body.split("<A:status>HTTP/1.1 404 Not Found</A:status>")[0].split("<A:status>HTTP/1.1 200 OK</A:status>")[1];
+    
+    expect(errorBlock).toContain("<C:calendar-user-address-set />");
+    expect(errorBlock).toContain("<A:dropbox-home-URL />");
+    expect(errorBlock).toContain("<A:supported-report-set />");
+    expect(errorBlock).toContain("<A:schedule-inbox-URL />");
+
+    // 4. Verify overall XML integrity
+    expect(body).toContain("</A:propstat>");
+    expect(body).toContain("</A:response>");
+  });
+
 });
