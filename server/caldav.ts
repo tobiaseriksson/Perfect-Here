@@ -122,7 +122,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
 async function caldavAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const auth = parseBasicAuth(req);
   if (!auth) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="GlassCal CalDAV"');
+    res.setHeader("WWW-Authenticate", 'Basic realm="MyCal CalDAV"');
     return res.status(401).send(xmlError("Authentication required"));
   }
 
@@ -138,7 +138,7 @@ async function caldavAuth(req: AuthenticatedRequest, res: Response, next: NextFu
   }
 
   if (!caldavShare || caldavShare.password !== auth.password || (caldavShare.username !== auth.username && !req.params.id)) {
-     res.setHeader("WWW-Authenticate", 'Basic realm="GlassCal CalDAV"');
+     res.setHeader("WWW-Authenticate", 'Basic realm="MyCal CalDAV"');
      return res.status(401).send(xmlError("Invalid credentials"));
   }
 
@@ -471,11 +471,11 @@ function escapeICS(text: string): string {
 
 function generateEventICS(event: Event, calendarId: number): string {
   const now = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-  const uid = `event-${event.id}@glasscal.local`;
+  const uid = `event-${event.id}@mycal.local`;
 
   let ics = "BEGIN:VCALENDAR\r\n";
   ics += "VERSION:2.0\r\n";
-  ics += "PRODID:-//GlassCal//CalDAV//EN\r\n";
+  ics += "PRODID:-//MyCal//CalDAV//EN\r\n";
   ics += "CALSCALE:GREGORIAN\r\n";
   ics += "BEGIN:VEVENT\r\n";
   ics += `UID:${uid}\r\n`;
@@ -499,7 +499,7 @@ function generateFullCalendarICS(calendar: Calendar, events: Event[]): string {
 
   let ics = "BEGIN:VCALENDAR\r\n";
   ics += "VERSION:2.0\r\n";
-  ics += "PRODID:-//GlassCal//CalDAV//EN\r\n";
+  ics += "PRODID:-//MyCal//CalDAV//EN\r\n";
   ics += `X-WR-CALNAME:${escapeICS(calendar.title)}\r\n`;
   if (calendar.description) {
     ics += `X-WR-CALDESC:${escapeICS(calendar.description)}\r\n`;
@@ -509,7 +509,7 @@ function generateFullCalendarICS(calendar: Calendar, events: Event[]): string {
   ics += "METHOD:PUBLISH\r\n";
 
   for (const event of events) {
-    const uid = `event-${event.id}@glasscal.local`;
+    const uid = `event-${event.id}@mycal.local`;
     ics += "BEGIN:VEVENT\r\n";
     ics += `UID:${uid}\r\n`;
     ics += `DTSTAMP:${now}\r\n`;
@@ -1279,12 +1279,12 @@ router.all("/calendars/:id", caldavAuth, async (req: AuthenticatedRequest, res: 
     <C:request-status>2.0;Success</C:request-status>
     <C:calendar-data>BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//GlassCal//CalDAV//EN
+PRODID:-//MyCal//CalDAV//EN
 CALSCALE:GREGORIAN
 METHOD:REPLY
 BEGIN:VFREEBUSY
 DTSTAMP:${now}
-UID:freebusy-${calendarId}@glasscal.local
+UID:freebusy-${calendarId}@mycal.local
 END:VFREEBUSY
 END:VCALENDAR</C:calendar-data>
   </C:response>
@@ -1744,7 +1744,7 @@ router.all("/principals/:id/:subId", caldavAuth, async (req: AuthenticatedReques
     // Get user email from calendar share or use a default
     let userEmail = req.caldavShare?.username || 'user@example.com';
     if (userEmail && !userEmail.includes('@')) {
-      userEmail = `${userEmail}@glasscal.local`;
+      userEmail = `${userEmail}@mycal.local`;
     }
     
     // Get display name - use username or calendar title
@@ -1909,7 +1909,7 @@ router.all("/principals/:id", caldavAuth, async (req: AuthenticatedRequest, res:
     if (userEmail && !userEmail.includes('@')) {
       // If username doesn't look like an email, try to get from calendar owner
       // For now, use a default format
-      userEmail = `${userEmail}@glasscal.local`;
+      userEmail = `${userEmail}@mycal.local`;
     }
     
     // Get display name - use username or calendar title

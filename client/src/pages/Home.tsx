@@ -63,7 +63,7 @@ export default function Home() {
           <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg comic-shadow flex items-center justify-center flex-shrink-0">
             <Calendar className="w-6 h-6 text-white" />
           </div>
-          <span className="text-xl font-bold tracking-tight">GlassCal</span>
+          <span className="text-xl font-bold tracking-tight">MyCal</span>
         </div>
 
         <Button 
@@ -112,7 +112,7 @@ export default function Home() {
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg comic-shadow flex items-center justify-center flex-shrink-0">
                       <Calendar className="w-6 h-6 text-white" />
                     </div>
-                    <span className="text-xl font-bold">GlassCal</span>
+                    <span className="text-xl font-bold">MyCal</span>
                   </div>
                   <Button className="w-full justify-start gap-2 comic-button" onClick={handleCreateNew}>
                     <Plus className="w-4 h-4" /> Create Event

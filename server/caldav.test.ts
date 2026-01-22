@@ -820,7 +820,7 @@ it("Test Case 8: PROPFIND /caldav/principals/1/ (Identity & Email Discovery)", a
     // Should contain displayname and email-address-set
     expect(body).toContain("<A:displayname>cal_1</A:displayname>");
     expect(body).toContain("<C:email-address-set>");
-    expect(body).toContain("<C:email-address>cal_1@glasscal.local</C:email-address>");
+    expect(body).toContain("<C:email-address>cal_1@mycal.local</C:email-address>");
     
     // Check that these are wrapped in a 200 OK status
     const okBlock = body.split("<A:status>HTTP/1.1 200 OK</A:status>")[0];

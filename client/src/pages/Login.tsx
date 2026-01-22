@@ -40,7 +40,7 @@ export default function Login() {
 
         <div className="space-y-3">
           <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
-            GlassCal
+            MyCal
           </h1>
           <p className="text-muted-foreground text-lg">
             Organize your life with style. 

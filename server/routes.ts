@@ -383,11 +383,11 @@ export async function registerRoutes(
 // Helper function to generate iCalendar format
 function generateICS(calendar: any, events: any[]): string {
   const now = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-  const calendarId = `calendar-${calendar.id}@glassical.local`;
+  const calendarId = `calendar-${calendar.id}@mycal.local`;
   
   let ics = "BEGIN:VCALENDAR\r\n";
   ics += "VERSION:2.0\r\n";
-  ics += "PRODID:-//GlassCal//Calendar//EN\r\n";
+  ics += "PRODID:-//MyCal//Calendar//EN\r\n";
   ics += `X-WR-CALNAME:${escapeICS(calendar.title)}\r\n`;
   ics += `X-WR-CALDESC:${escapeICS(calendar.description || "")}\r\n`;
   ics += `X-WR-TIMEZONE:UTC\r\n`;
@@ -460,13 +460,13 @@ async function sendShareEmail(recipientEmail: string, calendarName: string, send
 
     ${senderEmail} has shared the "${calendarName}" calendar with you!
 
-    To access the calendar, please click the link below and log in to GlassCal:
+    To access the calendar, please click the link below and log in to MyCal:
     ${appUrl}/login
 
     Once logged in, you'll have full admin access to manage events in the "${calendarName}" calendar.
 
     Best regards,
-    GlassCal Team
+    MyCal Team
   `;
 
   console.log(`📧 EMAIL NOTIFICATION:\nTo: ${recipientEmail}\n\n${emailContent}`);
@@ -477,7 +477,7 @@ async function sendShareEmail(recipientEmail: string, calendarName: string, send
   // sgMail.setApiKey(process.env.SENDGRID_API_KEY);
   // await sgMail.send({
   //   to: recipientEmail,
-  //   from: process.env.SENDER_EMAIL || 'noreply@glassical.local',
+  //   from: process.env.SENDER_EMAIL || 'noreply@mycal.local',
   //   subject: `${senderEmail} shared "${calendarName}" with you`,
   //   html: emailContent
   // });

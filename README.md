@@ -1,4 +1,4 @@
-# GlassCal - Calendar Sharing Application
+# MyCal - Calendar Sharing Application
 
 A modern, glassmorphic calendar application with advanced sharing capabilities. Share your calendars with others via email-based admin access or CalDAV URLs for read-only viewing.
 
