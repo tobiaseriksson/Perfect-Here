@@ -136,12 +136,20 @@ export async function setupAuth(app: Express) {
   app.get("/api/logout", (req, res) => {
     req.logout(() => {
       const clientId = process.env.REPL_ID || process.env.CLIENT_ID!;
-      res.redirect(
-        client.buildEndSessionUrl(config, {
-          client_id: clientId,
-          post_logout_redirect_uri: process.env.APP_URL || `${req.protocol}://${req.hostname}`,
-        }).href
-      );
+      const postLogoutRedirectUri = process.env.APP_URL || `${req.protocol}://${req.hostname}`;
+
+      // Only attempt to build the provider logout URL if the endpoint exists in metadata
+      if (config.serverMetadata().end_session_endpoint) {
+        res.redirect(
+          client.buildEndSessionUrl(config, {
+            client_id: clientId,
+            post_logout_redirect_uri: postLogoutRedirectUri,
+          }).href
+        );
+      } else {
+        // Fallback for providers like Google that don't support RP-Initiated Logout
+        res.redirect(postLogoutRedirectUri);
+      }
     });
   });
 }
