@@ -58,16 +58,16 @@ export default function Home() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Sidebar - Desktop */}
-      <aside className="hidden md:flex w-72 flex-col gap-6 p-6 border-r border-white/20 bg-white/30 backdrop-blur-xl">
+      <aside className="hidden md:flex w-72 flex-col gap-6 p-6 border-r border-slate-200/60 bg-slate-50/50 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-2">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg comic-shadow flex items-center justify-center flex-shrink-0">
+          <div className="w-10 h-10 bg-[#625df5] rounded-xl shadow-md shadow-indigo-500/20 flex items-center justify-center flex-shrink-0">
             <Calendar className="w-6 h-6 text-white" />
           </div>
           <span className="text-xl font-bold tracking-tight">MyCal</span>
         </div>
 
         <Button 
-          className="w-full justify-start gap-2 h-12 text-lg comic-button bg-primary text-primary-foreground hover:bg-primary/90"
+          className="w-full justify-start gap-2 h-12 text-lg rounded-full bg-[#625df5] text-white hover:bg-[#524de5] shadow-lg shadow-indigo-500/20 transition-all"
           onClick={handleCreateNew}
         >
           <Plus className="w-5 h-5" /> Create Event
@@ -77,11 +77,11 @@ export default function Home() {
           <CalendarList selectedCalendarId={selectedCalendarId} onSelectCalendar={setSelectedCalendarId} />
         </div>
 
-        <div className="pt-4 border-t border-white/20">
+        <div className="pt-4 border-t border-slate-200">
           <div className="flex items-center gap-3 mb-4">
             <img 
               src={user.profileImageUrl || `https://ui-avatars.com/api/?name=${user.firstName}+${user.lastName}`} 
-              className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
+              className="w-10 h-10 rounded-full border border-slate-200 shadow-sm"
               alt="Profile"
             />
             <div className="flex-1 min-w-0">
@@ -98,7 +98,7 @@ export default function Home() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full min-w-0">
         {/* Header */}
-        <header className="h-16 flex items-center justify-between px-6 border-b border-white/20 bg-white/20 backdrop-blur-md sticky top-0 z-10">
+        <header className="h-16 flex items-center justify-between px-6 border-b border-slate-200/60 bg-white/80 backdrop-blur-md sticky top-0 z-10">
           <div className="flex items-center gap-4">
             <Sheet>
               <SheetTrigger asChild>
@@ -109,12 +109,12 @@ export default function Home() {
               <SheetContent side="left" className="glass w-80 p-0 border-r-white/40">
                 <div className="h-full flex flex-col p-6 gap-6">
                   <div className="flex items-center gap-3 px-2">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg comic-shadow flex items-center justify-center flex-shrink-0">
+                    <div className="w-10 h-10 bg-[#625df5] rounded-xl flex items-center justify-center flex-shrink-0">
                       <Calendar className="w-6 h-6 text-white" />
                     </div>
                     <span className="text-xl font-bold">MyCal</span>
                   </div>
-                  <Button className="w-full justify-start gap-2 comic-button" onClick={handleCreateNew}>
+                  <Button className="w-full justify-start gap-2 rounded-full bg-[#625df5]" onClick={handleCreateNew}>
                     <Plus className="w-4 h-4" /> Create Event
                   </Button>
                   <CalendarList selectedCalendarId={selectedCalendarId} onSelectCalendar={setSelectedCalendarId} />
@@ -128,13 +128,13 @@ export default function Home() {
             </Sheet>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={handlePrevMonth} className="h-8 w-8 rounded-full hover:bg-white/50 border-white/40">
+              <Button variant="outline" size="icon" onClick={handlePrevMonth} className="h-9 w-9 rounded-full hover:bg-slate-50 border-slate-200">
                 <ChevronLeft className="w-4 h-4" />
               </Button>
               <h2 className="text-2xl font-bold min-w-[140px] text-center">
                 {format(currentDate, "MMMM yyyy")}
               </h2>
-              <Button variant="outline" size="icon" onClick={handleNextMonth} className="h-8 w-8 rounded-full hover:bg-white/50 border-white/40">
+              <Button variant="outline" size="icon" onClick={handleNextMonth} className="h-9 w-9 rounded-full hover:bg-slate-50 border-slate-200">
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
